@@ -34,6 +34,8 @@ module.exports = class okex extends okcoinusd {
                 'HSR': 'HC',
                 'MAG': 'Maggie',
                 'YOYO': 'YOYOW',
+                'BCHABC': 'BCH',
+                'BCHSV': 'BSV',
             },
             'options': {
                 'fetchTickersMethod': 'fetch_tickers_from_api',
