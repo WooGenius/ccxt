@@ -191,7 +191,7 @@ declare module 'ccxt' {
         info: any,
     }
 
-    export interface WithdrawalResult {
+    export interface WithdrawResult {
         info: any,
         id: number,
     }
