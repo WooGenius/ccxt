@@ -146,6 +146,7 @@ declare module 'ccxt' {
         timestamp: number;
         datetime: string;
         address: string;
+        tag?: string;
         type: "deposit" | "withdrawal";
         amount: number;
         currency: string;
@@ -185,8 +186,14 @@ declare module 'ccxt' {
     export interface DepositAddress {
         currency: string,
         address: string,
+        tag?: string,
         status: string,
         info: any,
+    }
+
+    export interface WithdrawalResult {
+        info: any,
+        id: number,
     }
 
     // timestamp, open, high, low, close, volume
