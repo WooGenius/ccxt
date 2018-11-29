@@ -2,6 +2,7 @@
 
 //  ---------------------------------------------------------------------------
 
+const crypto = require ('crypto');
 const Exchange = require ('./base/Exchange');
 const { ExchangeError, DDoSProtection, AuthenticationError, InvalidOrder } = require ('./base/errors');
 
