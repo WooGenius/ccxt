@@ -256,8 +256,6 @@ module.exports = class binance extends Exchange {
             },
             'commonCurrencies': {
                 'YOYO': 'YOYOW',
-                'BCHABC': 'BCH',
-                'BCHSV': 'BSV',
             },
             // exchange-specific options
             'options': {
