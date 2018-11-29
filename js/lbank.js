@@ -487,7 +487,6 @@ module.exports = class lbank extends Exchange {
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let query = this.omit (params, this.extractParams (path));
         let url = this.urls['api'] + '/' + this.version + '/' + this.implodeParams (path, params);
-        // Every endpoint ends with ".do"
         url += '.do';
         if (api === 'public') {
             if (Object.keys (query).length)
@@ -497,8 +496,19 @@ module.exports = class lbank extends Exchange {
             let query = this.keysort (this.extend ({
                 'api_key': this.apiKey,
             }, params));
-            let queryString = this.rawencode (query) + '&secret_key=' + this.secret;
-            query['sign'] = this.hash (this.encode (queryString)).toUpperCase ();
+            let queryString = this.rawencode (query);
+            let message = this.hash (this.encode (queryString)).toUpperCase ();
+            let secretArr = ['-----BEGIN PRIVATE KEY-----'];
+            let l = this.secret.length;
+            for (let i = 0; i < l; i += 64) {
+                secretArr.push(this.secret.slice(i, i + 64));
+            }
+            secretArr.push('-----END PRIVATE KEY-----');
+            let secret = secretArr.join('\n');
+            let signer = crypto.createSign('RSA-SHA256'); // PKCS1_v1_5
+            signer.update(message);
+            let sign = signer.sign(secret, 'base64');
+            query['sign'] = sign;
             body = this.urlencode (query);
             headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
         }
