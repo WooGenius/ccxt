@@ -62,6 +62,7 @@ module.exports = class lbank extends Exchange {
                         'cancel_order',
                         'orders_info',
                         'orders_info_history',
+                        'orders_info_no_deal',
                         'withdraw',
                         'withdrawCancel',
                         'withdraws',
@@ -459,8 +460,17 @@ module.exports = class lbank extends Exchange {
     }
 
     async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        let orders = await this.fetchOrders (symbol, since, limit, params);
-        return this.filterBy(orders, 'status', 'open');
+        await this.loadMarkets ();
+        if (limit === undefined) {
+            limit = 100;
+        }
+        let market = this.market (symbol);
+        let response = await this.privatePostOrdersInfoNoDeal (this.extend ({
+            'symbol': market['id'],
+            'current_page': 1,
+            'page_length': limit,
+        }, params));
+        return this.parseOrders (response['orders'], undefined, since, limit);
     }
 
     async fetchClosedOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
