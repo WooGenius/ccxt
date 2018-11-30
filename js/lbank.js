@@ -458,6 +458,11 @@ module.exports = class lbank extends Exchange {
         return this.parseOrders (response['orders'], undefined, since, limit);
     }
 
+    async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        let orders = await this.fetchOrders (symbol, since, limit, params);
+        return this.filterBy(orders, 'status', 'open');
+    }
+
     async fetchClosedOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
         let orders = await this.fetchOrders (symbol, since, limit, params);
         let closed = this.filterBy (orders, 'status', 'closed');

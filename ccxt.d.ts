@@ -303,6 +303,7 @@ declare module 'ccxt' {
         fetchOrder (id: string, symbol?: string, params?: {}): Promise<Order>;
         fetchOrders (symbol?: string, since?: number, limit?: number, params?: {}): Promise<Order[]>;
         fetchOpenOrders (symbol?: string, since?: number, limit?: number, params?: {}): Promise<Order[]>;
+        fetchClosedOrders (symbol?: string, since?: number, limit?: number, params?: {}): Promise<Order[]>;
         fetchCurrencies (params?: any): Promise<any>;
         fetchTransactions (currency?: string, since?: number, limit?: number, params?: {}): Promise<Transaction[]>;
         fetchDeposits (currency?: string, since?: number, limit?: number, params?: {}): Promise<Transaction[]>;
