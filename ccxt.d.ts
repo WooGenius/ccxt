@@ -300,6 +300,7 @@ declare module 'ccxt' {
         fetchTickers (symbols?: string[]): Promise<Tickers>;
         fetchTrades (symbol: string, since?: number, limit?: number, params?: {}): Promise<Trade[]>;
         fetchOHLCV? (symbol: string, timeframe?: string, since?: number, limit?: number, params?: {}): Promise<OHLCV[]>;
+        fetchOrder (id: string, symbol?: string, params?: {}): Promise<Order>;
         fetchOrders (symbol?: string, since?: number, limit?: number, params?: {}): Promise<Order[]>;
         fetchOpenOrders (symbol?: string, since?: number, limit?: number, params?: {}): Promise<Order[]>;
         fetchCurrencies (params?: any): Promise<any>;
