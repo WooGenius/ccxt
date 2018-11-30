@@ -462,7 +462,7 @@ module.exports = class lbank extends Exchange {
         let orders = await this.fetchOrders (symbol, since, limit, params);
         let closed = this.filterBy (orders, 'status', 'closed');
         let cancelled = this.filterBy (orders, 'status', 'cancelled'); // cancelled orders may be partially filled
-        return closed + cancelled;
+        return [...closed, ...cancelled];
     }
 
     async withdraw (code, amount, address, tag = undefined, params = {}) {
