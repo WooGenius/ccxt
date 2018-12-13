@@ -113,6 +113,7 @@ class kraken extends Exchange {
                         'GNO' => 0.01,
                         'EOS' => 0.5,
                         'BCH' => 0.001,
+                        'XTZ' => 0.05,
                         'USD' => 5, // if domestic wire
                         'EUR' => 5, // if domestic wire
                         'CAD' => 10, // CAD EFT Withdrawal
@@ -135,6 +136,7 @@ class kraken extends Exchange {
                         'GNO' => 0,
                         'EOS' => 0,
                         'BCH' => 0,
+                        'XTZ' => 0.05,
                         'USD' => 5, // if domestic wire
                         'EUR' => 0, // free deposit if EUR SEPA Deposit
                         'CAD' => 5, // if domestic wire
@@ -236,18 +238,17 @@ class kraken extends Exchange {
             if ($amountAndCode !== 'To Be Announced') {
                 $pieces = explode (' ', $amountAndCode);
                 $numPieces = is_array ($pieces) ? count ($pieces) : 0;
-                if ($numPieces !== 2) {
-                    throw new ExchangeError ($this->id . ' fetchMinOrderAmounts HTML page markup has changed => https://support.kraken.com/hc/en-us/articles/205893708-What-is-the-minimum-order-size-');
+                if ($numPieces === 2) {
+                    $amount = floatval ($pieces[0]);
+                    $code = $this->common_currency_code($pieces[1]);
+                    $result[$code] = $amount;
                 }
-                $amount = floatval ($pieces[0]);
-                $code = $this->common_currency_code($pieces[1]);
-                $result[$code] = $amount;
             }
         }
         return $result;
     }
 
-    public function fetch_markets () {
+    public function fetch_markets ($params = array ()) {
         $markets = $this->publicGetAssetPairs ();
         $limits = $this->fetch_min_order_amounts ();
         $keys = is_array ($markets['result']) ? array_keys ($markets['result']) : array ();
@@ -1158,7 +1159,10 @@ class kraken extends Exchange {
         return $this->milliseconds ();
     }
 
-    public function handle_errors ($code, $reason, $url, $method, $headers, $body) {
+    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response = null) {
+        if ($code === 520) {
+            throw new ExchangeNotAvailable ($this->id . ' ' . $body);
+        }
         if (mb_strpos ($body, 'Invalid order') !== false)
             throw new InvalidOrder ($this->id . ' ' . $body);
         if (mb_strpos ($body, 'Invalid nonce') !== false)

@@ -41,13 +41,14 @@ class bittrex extends Exchange {
                 '1h' => 'hour',
                 '1d' => 'day',
             ),
+            'hostname' => 'bittrex.com',
             'urls' => array (
                 'logo' => 'https://user-images.githubusercontent.com/1294454/27766352-cf0b3c26-5ed5-11e7-82b7-f3826b7a97d8.jpg',
                 'api' => array (
-                    'public' => 'https://bittrex.com/api',
-                    'account' => 'https://bittrex.com/api',
-                    'market' => 'https://bittrex.com/api',
-                    'v2' => 'https://bittrex.com/api/v2.0/pub',
+                    'public' => 'https://{hostname}/api',
+                    'account' => 'https://{hostname}/api',
+                    'market' => 'https://{hostname}/api',
+                    'v2' => 'https://{hostname}/api/v2.0/pub',
                 ),
                 'www' => 'https://bittrex.com',
                 'doc' => array (
@@ -180,11 +181,14 @@ class bittrex extends Exchange {
         return $this->decimal_to_precision($fee, TRUNCATE, $this->markets[$symbol]['precision']['price'], DECIMAL_PLACES);
     }
 
-    public function fetch_markets () {
-        $response = $this->v2GetMarketsGetMarketSummaries ();
+    public function fetch_markets ($params = array ()) {
+        // https://github.com/ccxt/ccxt/commit/866370ba6c9cabaf5995d992c15a82e38b8ca291
+        // https://github.com/ccxt/ccxt/pull/4304
+        $response = $this->publicGetMarkets ();
         $result = array ();
-        for ($i = 0; $i < count ($response['result']); $i++) {
-            $market = $response['result'][$i]['Market'];
+        $markets = $this->safe_value($response, 'result');
+        for ($i = 0; $i < count ($markets); $i++) {
+            $market = $markets[$i];
             $id = $market['MarketName'];
             $baseId = $market['MarketCurrency'];
             $quoteId = $market['BaseCurrency'];
@@ -198,7 +202,11 @@ class bittrex extends Exchange {
                 'amount' => 8,
                 'price' => $pricePrecision,
             );
-            $active = $market['IsActive'] || $market['IsActive'] === 'true';
+            // bittrex uses boolean values, bleutrade uses strings
+            $active = $this->safe_value($market, 'IsActive', false);
+            if (($active !== 'false') || $active) {
+                $active = true;
+            }
             $result[] = array (
                 'id' => $id,
                 'symbol' => $symbol,
@@ -624,7 +632,7 @@ class bittrex extends Exchange {
         $address = $this->safe_string_2($transaction, 'CryptoAddress', 'Address');
         $txid = $this->safe_string($transaction, 'TxId');
         $updated = $this->parse8601 ($this->safe_value($transaction, 'LastUpdated'));
-        $timestamp = $this->parse8601 ($this->safe_string($transaction, 'Opened'), $updated);
+        $timestamp = $this->parse8601 ($this->safe_string($transaction, 'Opened', $updated));
         $type = ($timestamp !== null) ? 'withdrawal' : 'deposit';
         $code = null;
         $currencyId = $this->safe_string($transaction, 'Currency');
@@ -896,7 +904,9 @@ class bittrex extends Exchange {
     }
 
     public function sign ($path, $api = 'public', $method = 'GET', $params = array (), $headers = null, $body = null) {
-        $url = $this->urls['api'][$api] . '/';
+        $url = $this->implode_params($this->urls['api'][$api], array (
+            'hostname' => $this->hostname,
+        )) . '/';
         if ($api !== 'v2')
             $url .= $this->version . '/';
         if ($api === 'public') {
@@ -926,7 +936,7 @@ class bittrex extends Exchange {
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 
-    public function handle_errors ($code, $reason, $url, $method, $headers, $body) {
+    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response = null) {
         if ($body[0] === '{') {
             $response = json_decode ($body, $as_associative_array = true);
             // array ( $success => false, $message => "$message" )
