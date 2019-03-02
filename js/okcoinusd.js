@@ -120,7 +120,7 @@ module.exports = class okcoinusd extends Exchange {
                 'api': {
                     'web': 'https://www.okcoin.com/v2',
                     'public': 'https://www.okcoin.com/api',
-                    'private': 'https://www.okcoin.com/api',
+                    'private': 'https://www.okcoin.com',
                 },
                 'www': 'https://www.okcoin.com',
                 'doc': [
@@ -958,11 +958,10 @@ module.exports = class okcoinusd extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response = undefined) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if (body.length < 2)
             return; // fallback to default error handler
         if (body[0] === '{') {
-            response = JSON.parse (body);
             if ('error_code' in response) {
                 let error = this.safeString (response, 'error_code');
                 let message = this.id + ' ' + this.json (response);

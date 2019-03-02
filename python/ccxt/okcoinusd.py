@@ -5,7 +5,6 @@
 
 from ccxt.base.exchange import Exchange
 import math
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
@@ -129,7 +128,7 @@ class okcoinusd (Exchange):
                 'api': {
                     'web': 'https://www.okcoin.com/v2',
                     'public': 'https://www.okcoin.com/api',
-                    'private': 'https://www.okcoin.com/api',
+                    'private': 'https://www.okcoin.com',
                 },
                 'www': 'https://www.okcoin.com',
                 'doc': [
@@ -909,11 +908,10 @@ class okcoinusd (Exchange):
         url = self.urls['api'][api] + url
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if len(body) < 2:
             return  # fallback to default error handler
         if body[0] == '{':
-            response = json.loads(body)
             if 'error_code' in response:
                 error = self.safe_string(response, 'error_code')
                 message = self.id + ' ' + self.json(response)

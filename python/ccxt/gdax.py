@@ -6,7 +6,6 @@
 from ccxt.base.exchange import Exchange
 import base64
 import hashlib
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
@@ -94,6 +93,7 @@ class gdax (Exchange):
                         'users/self/trailing-volume',
                     ],
                     'post': [
+                        'conversions',
                         'deposits/coinbase-account',
                         'deposits/payment-method',
                         'coinbase-accounts/{id}/addresses',
@@ -177,7 +177,10 @@ class gdax (Exchange):
             taker = self.fees['trading']['taker']  # does not seem right
             if (base == 'ETH') or (base == 'LTC'):
                 taker = 0.003
-            active = market['status'] == 'online'
+            accessible = True
+            if 'accessible' in market:
+                accessible = self.safe_value(market, 'accessible')
+            active = (market['status'] == 'online') and accessible
             result.append(self.extend(self.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
@@ -231,7 +234,7 @@ class gdax (Exchange):
             'id': market['id'],
         }, params)
         ticker = self.publicGetProductsIdTicker(request)
-        timestamp = self.parse8601(ticker['time'])
+        timestamp = self.parse8601(self.safe_value(ticker, 'time'))
         bid = None
         ask = None
         if 'bid' in ticker:
@@ -272,11 +275,12 @@ class gdax (Exchange):
             symbol = market['symbol']
         feeRate = None
         feeCurrency = None
+        takerOrMaker = None
         if market is not None:
             feeCurrency = market['quote']
             if 'liquidity' in trade:
-                rateType = 'taker' if (trade['liquidity'] == 'T') else 'maker'
-                feeRate = market[rateType]
+                takerOrMaker = 'taker' if (trade['liquidity'] == 'T') else 'maker'
+                feeRate = market[takerOrMaker]
         feeCost = self.safe_float(trade, 'fill_fees')
         if feeCost is None:
             feeCost = self.safe_float(trade, 'fee')
@@ -302,6 +306,7 @@ class gdax (Exchange):
             'datetime': self.iso8601(timestamp),
             'symbol': symbol,
             'type': type,
+            'takerOrMaker': takerOrMaker,
             'side': side,
             'price': price,
             'amount': amount,
@@ -566,16 +571,16 @@ class gdax (Exchange):
         response = self.privateGetAccountsIdTransfers(self.extend(request, params))
         for i in range(0, len(response)):
             response[i]['currency'] = code
-        return self.parseTransactions(response)
+        return self.parseTransactions(response, currency, since, limit)
 
     def parse_transaction_status(self, transaction):
         if 'canceled_at' in transaction and transaction['canceled_at']:
             return 'canceled'
         elif 'completed_at' in transaction and transaction['completed_at']:
             return 'ok'
-        elif ('canceled_at' in list(transaction and not transaction['canceled_at'].keys())) and('completed_at' in list(transaction and not transaction['completed_at'].keys())) and('processed_at' in list(transaction and not transaction['processed_at'].keys())):
+        elif (('canceled_at' in list(transaction.keys())) and not transaction['canceled_at']) and(('completed_at' in list(transaction.keys())) and not transaction['completed_at']) and(('processed_at' in list(transaction.keys())) and not transaction['processed_at']):
             return 'pending'
-        elif 'procesed_at' in transaction and transaction['procesed_at']:
+        elif 'processed_at' in transaction and transaction['processed_at']:
             return 'pending'
         else:
             return 'failed'
@@ -673,10 +678,9 @@ class gdax (Exchange):
             'info': response,
         }
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if (code == 400) or (code == 404):
             if body[0] == '{':
-                response = json.loads(body)
                 message = response['message']
                 feedback = self.id + ' ' + message
                 exact = self.exceptions['exact']

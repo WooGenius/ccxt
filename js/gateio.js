@@ -41,6 +41,7 @@ module.exports = class gateio extends Exchange {
                     'https://gate.io/fee',
                     'https://support.gate.io/hc/en-us/articles/115003577673',
                 ],
+                'referral': 'https://www.gate.io/signup/2436035',
             },
             'api': {
                 'public': {
@@ -261,19 +262,18 @@ module.exports = class gateio extends Exchange {
         };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response = undefined) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if (body.length <= 0) {
             return;
         }
         if (body[0] !== '{') {
             return;
         }
-        let jsonbodyParsed = JSON.parse (body);
-        let resultString = this.safeString (jsonbodyParsed, 'result', '');
+        let resultString = this.safeString (response, 'result', '');
         if (resultString !== 'false') {
             return;
         }
-        let errorCode = this.safeString (jsonbodyParsed, 'code');
+        let errorCode = this.safeString (response, 'code');
         if (errorCode !== undefined) {
             const exceptions = this.exceptions;
             const errorCodeNames = this.errorCodeNames;
@@ -282,7 +282,7 @@ module.exports = class gateio extends Exchange {
                 if (errorCode in errorCodeNames) {
                     message = errorCodeNames[errorCode];
                 } else {
-                    message = this.safeString (jsonbodyParsed, 'message', '(unknown)');
+                    message = this.safeString (response, 'message', '(unknown)');
                 }
                 throw new exceptions[errorCode] (message);
             }
@@ -566,11 +566,15 @@ module.exports = class gateio extends Exchange {
         this.checkAddress (address);
         await this.loadMarkets ();
         let currency = this.currency (code);
-        let response = await this.privatePostWithdraw (this.extend ({
+        const request = {
             'currency': currency['id'],
             'amount': amount,
             'address': address, // Address must exist in you AddressBook in security settings
-        }, params));
+        };
+        if (tag !== undefined) {
+            request['address'] += ' ' + tag;
+        }
+        let response = await this.privatePostWithdraw (this.extend (request, params));
         return {
             'info': response,
             'id': undefined,

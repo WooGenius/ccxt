@@ -508,10 +508,9 @@ module.exports = class bitfinex extends Exchange {
         let tickers = await this.publicGetTickers (params);
         let result = {};
         for (let i = 0; i < tickers.length; i++) {
-            let ticker = tickers[i];
-            let parsedTicker = this.parseTicker (ticker);
-            let symbol = parsedTicker['symbol'];
-            result[symbol] = parsedTicker;
+            let ticker = this.parseTicker (tickers[i]);
+            let symbol = ticker['symbol'];
+            result[symbol] = ticker;
         }
         return result;
     }
@@ -633,6 +632,7 @@ module.exports = class bitfinex extends Exchange {
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
         await this.loadMarkets ();
         let orderType = type;
+        // todo: support more order types (“exchange stop” / “exchange trailing-stop” / “exchange fill-or-kill”)
         if ((type === 'limit') || (type === 'market'))
             orderType = 'exchange ' + type;
         amount = this.amountToPrecision (symbol, amount);
@@ -962,8 +962,8 @@ module.exports = class bitfinex extends Exchange {
                 'nonce': nonce.toString (),
                 'request': request,
             }, query);
-            query = this.json (query);
-            query = this.encode (query);
+            body = this.json (query);
+            query = this.encode (body);
             let payload = this.stringToBase64 (query);
             let secret = this.encode (this.secret);
             let signature = this.hmac (payload, secret, 'sha384');
@@ -976,12 +976,11 @@ module.exports = class bitfinex extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response = undefined) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if (body.length < 2)
             return;
         if (code >= 400) {
             if (body[0] === '{') {
-                response = JSON.parse (body);
                 const feedback = this.id + ' ' + this.json (response);
                 let message = undefined;
                 if ('message' in response) {

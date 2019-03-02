@@ -14,6 +14,14 @@ To run the ccxt examples from any folder type one of the following commands in c
 node path/to/example.js # substitute for actual filename here
 ```
 
+These examples might require the following super-useful high-quality Node.js modules by [xpl](https://github.com/xpl):
+
+- [ololog](https://github.com/xpl/ololog): Platform-agnostic logging with blackjack and hookers ([ololog @ npm](https://npmjs.com/package/ololog))
+- [ansicolor](https://github.com/xpl/ansicolor): A quality JavaScript library for the ANSI color/style management ([ansicolor @ npm](https://npmjs.com/package/ansicolor))
+- [as-table](https://github.com/xpl/as-table): A simple function that prints objects as ASCII tables ([as-table @ npm](https://npmjs.com/package/as-table))
+
+All of the modules above are installed with the ccxt library devDependencies by npm automatically.
+
 <img width="842" alt="bitcoin ascii chart" src="https://user-images.githubusercontent.com/1294454/29673849-156f58c6-88f9-11e7-8955-fb3f37467234.png">
 
 
@@ -58,6 +66,8 @@ php -f path/to/example.php # substitute for actual filename here
 [A Video Crash-Course On Using CCXT](https://www.youtube.com/playlist?list=PLIFBTFgFpoJ-xGRz3v_2nF7f9HKZrfSpj) – A series of awesome video tutorials on getting started with CCXT!
 
 [Let’s write a cryptocurrency bot](https://medium.com/@joeldg/an-advanced-tutorial-a-new-crypto-currency-trading-bot-boilerplate-framework-e777733607ae) – A multi-part advanced tutorial on a new cryptocurrency trading framework also integrating ccxt.
+
+[Download Cryptocurrency Data with CCXT](https://backtest-rookies.com/2018/03/08/download-cryptocurrency-data-with-ccxt/) – A sample script to download historical data from exchanges with a video overview: [Easy Python script to download crypto currency market data with CCXT package](https://www.youtube.com/watch?v=PTGkJsrF7kQ).
 
 [Experiments : Creating a Crypto Twitter Bot to Announce Newly Listed CryptoCoins](https://medium.com/@kennychuaio/experiments-creating-a-crypto-twitter-bot-to-announce-newly-listed-cryptocoins-9cd23930f5cb) – An article on how to integrate with CCXT and Twitter to get new currencies from exchanges automatically.
 

@@ -343,6 +343,7 @@ class bitstamp extends Exchange {
         $orderId = $this->safe_string($trade, 'order_id');
         $price = $this->safe_float($trade, 'price');
         $amount = $this->safe_float($trade, 'amount');
+        $cost = $this->safe_float($trade, 'cost');
         $id = $this->safe_string_2($trade, 'tid', 'id');
         if ($market === null) {
             $keys = is_array ($trade) ? array_keys ($trade) : array ();
@@ -364,6 +365,7 @@ class bitstamp extends Exchange {
         if ($market !== null) {
             $price = $this->safe_float($trade, $market['symbolId'], $price);
             $amount = $this->safe_float($trade, $market['baseId'], $amount);
+            $cost = $this->safe_float($trade, $market['quoteId'], $cost);
             $feeCurrency = $market['quote'];
             $symbol = $market['symbol'];
         }
@@ -375,10 +377,11 @@ class bitstamp extends Exchange {
             }
             $amount = abs ($amount);
         }
-        $cost = null;
-        if ($price !== null) {
-            if ($amount !== null) {
-                $cost = $price * $amount;
+        if ($cost === null) {
+            if ($price !== null) {
+                if ($amount !== null) {
+                    $cost = $price * $amount;
+                }
             }
         }
         if ($cost !== null) {
@@ -684,6 +687,16 @@ class bitstamp extends Exchange {
     }
 
     public function parse_order ($order, $market = null) {
+        //
+        //     {
+        //         $price => '0.00008012',
+        //         currency_pair => 'XRP/BTC',
+        //         datetime => '2019-01-31 21:23:36',
+        //         $amount => '15.00000000',
+        //         type => '0',
+        //         $id => '2814205012'
+        //     }
+        //
         $id = $this->safe_string($order, 'id');
         $side = $this->safe_string($order, 'type');
         if ($side !== null) {
@@ -691,12 +704,13 @@ class bitstamp extends Exchange {
         }
         $timestamp = $this->parse8601 ($this->safe_string($order, 'datetime'));
         $symbol = null;
-        if ($market === null) {
-            if (is_array ($order) && array_key_exists ('currency_pair', $order)) {
-                $marketId = $order['currency_pair'];
-                if (is_array ($this->markets_by_id) && array_key_exists ($marketId, $this->markets_by_id)) {
-                    $market = $this->markets_by_id[$marketId];
-                }
+        $marketId = $this->safe_string($order, 'currency_pair');
+        if ($marketId !== null) {
+            $marketId = str_replace ('/', '', $marketId);
+            $marketId = strtolower ($marketId);
+            if (is_array ($this->markets_by_id) && array_key_exists ($marketId, $this->markets_by_id)) {
+                $market = $this->markets_by_id[$marketId];
+                $symbol = $market['symbol'];
             }
         }
         $amount = $this->safe_float($order, 'amount');
@@ -736,7 +750,9 @@ class bitstamp extends Exchange {
         }
         $feeCurrency = null;
         if ($market !== null) {
-            $symbol = $market['symbol'];
+            if ($symbol === null) {
+                $symbol = $market['symbol'];
+            }
             $feeCurrency = $market['quote'];
         }
         if ($cost === null) {
@@ -748,10 +764,15 @@ class bitstamp extends Exchange {
                 $price = $cost / $filled;
             }
         }
-        $fee = array (
-            'cost' => $feeCost,
-            'currency' => $feeCurrency,
-        );
+        $fee = null;
+        if ($feeCost !== null) {
+            if ($feeCurrency !== null) {
+                $fee = array (
+                    'cost' => $feeCost,
+                    'currency' => $feeCurrency,
+                );
+            }
+        }
         return array (
             'id' => $id,
             'datetime' => $this->iso8601 ($timestamp),
@@ -778,8 +799,30 @@ class bitstamp extends Exchange {
         if ($symbol !== null) {
             $market = $this->market ($symbol);
         }
-        $orders = $this->privatePostOpenOrdersAll ();
-        return $this->parse_orders($orders, $market, $since, $limit);
+        $response = $this->privatePostOpenOrdersAll ($params);
+        //     array (
+        //         {
+        //             price => '0.00008012',
+        //             currency_pair => 'XRP/BTC',
+        //             datetime => '2019-01-31 21:23:36',
+        //             amount => '15.00000000',
+        //             type => '0',
+        //             id => '2814205012',
+        //         }
+        //     )
+        //
+        $result = array ();
+        for ($i = 0; $i < count ($response); $i++) {
+            $order = $this->parse_order($response[$i], $market);
+            $result[] = array_merge ($order, array (
+                'status' => 'open',
+                'type' => 'limit',
+            ));
+        }
+        if ($symbol === null) {
+            return $this->filter_by_since_limit($result, $since, $limit);
+        }
+        return $this->filter_by_symbol_since_limit($result, $symbol, $since, $limit);
     }
 
     public function get_currency_name ($code) {
@@ -872,13 +915,12 @@ class bitstamp extends Exchange {
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 
-    public function handle_errors ($httpCode, $reason, $url, $method, $headers, $body, $response = null) {
+    public function handle_errors ($httpCode, $reason, $url, $method, $headers, $body, $response) {
         if (gettype ($body) !== 'string')
             return; // fallback to default $error handler
         if (strlen ($body) < 2)
             return; // fallback to default $error handler
         if (($body[0] === '{') || ($body[0] === '[')) {
-            $response = json_decode ($body, $as_associative_array = true);
             // fetchDepositAddress returns array ("$error" => "No permission found") on apiKeys that don't have the permission required
             $error = $this->safe_string($response, 'error');
             $exceptions = $this->exceptions;

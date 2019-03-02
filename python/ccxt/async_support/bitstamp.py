@@ -12,7 +12,6 @@ try:
 except NameError:
     basestring = str  # Python 2
 import math
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import PermissionDenied
@@ -341,6 +340,7 @@ class bitstamp (Exchange):
         orderId = self.safe_string(trade, 'order_id')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'amount')
+        cost = self.safe_float(trade, 'cost')
         id = self.safe_string_2(trade, 'tid', 'id')
         if market is None:
             keys = list(trade.keys())
@@ -358,6 +358,7 @@ class bitstamp (Exchange):
         if market is not None:
             price = self.safe_float(trade, market['symbolId'], price)
             amount = self.safe_float(trade, market['baseId'], amount)
+            cost = self.safe_float(trade, market['quoteId'], cost)
             feeCurrency = market['quote']
             symbol = market['symbol']
         if amount is not None:
@@ -366,10 +367,10 @@ class bitstamp (Exchange):
             else:
                 side = 'buy'
             amount = abs(amount)
-        cost = None
-        if price is not None:
-            if amount is not None:
-                cost = price * amount
+        if cost is None:
+            if price is not None:
+                if amount is not None:
+                    cost = price * amount
         if cost is not None:
             cost = abs(cost)
         return {
@@ -646,17 +647,29 @@ class bitstamp (Exchange):
         return self.safe_string(statuses, status, status)
 
     def parse_order(self, order, market=None):
+        #
+        #     {
+        #         price: '0.00008012',
+        #         currency_pair: 'XRP/BTC',
+        #         datetime: '2019-01-31 21:23:36',
+        #         amount: '15.00000000',
+        #         type: '0',
+        #         id: '2814205012'
+        #     }
+        #
         id = self.safe_string(order, 'id')
         side = self.safe_string(order, 'type')
         if side is not None:
             side = 'sell' if (side == '1') else 'buy'
         timestamp = self.parse8601(self.safe_string(order, 'datetime'))
         symbol = None
-        if market is None:
-            if 'currency_pair' in order:
-                marketId = order['currency_pair']
-                if marketId in self.markets_by_id:
-                    market = self.markets_by_id[marketId]
+        marketId = self.safe_string(order, 'currency_pair')
+        if marketId is not None:
+            marketId = marketId.replace('/', '')
+            marketId = marketId.lower()
+            if marketId in self.markets_by_id:
+                market = self.markets_by_id[marketId]
+                symbol = market['symbol']
         amount = self.safe_float(order, 'amount')
         filled = 0.0
         trades = []
@@ -688,7 +701,8 @@ class bitstamp (Exchange):
             market = self.get_market_from_trades(trades)
         feeCurrency = None
         if market is not None:
-            symbol = market['symbol']
+            if symbol is None:
+                symbol = market['symbol']
             feeCurrency = market['quote']
         if cost is None:
             if price is not None:
@@ -696,10 +710,13 @@ class bitstamp (Exchange):
         elif price is None:
             if filled > 0:
                 price = cost / filled
-        fee = {
-            'cost': feeCost,
-            'currency': feeCurrency,
-        }
+        fee = None
+        if feeCost is not None:
+            if feeCurrency is not None:
+                fee = {
+                    'cost': feeCost,
+                    'currency': feeCurrency,
+                }
         return {
             'id': id,
             'datetime': self.iso8601(timestamp),
@@ -724,8 +741,28 @@ class bitstamp (Exchange):
         await self.load_markets()
         if symbol is not None:
             market = self.market(symbol)
-        orders = await self.privatePostOpenOrdersAll()
-        return self.parse_orders(orders, market, since, limit)
+        response = await self.privatePostOpenOrdersAll(params)
+        #     [
+        #         {
+        #             price: '0.00008012',
+        #             currency_pair: 'XRP/BTC',
+        #             datetime: '2019-01-31 21:23:36',
+        #             amount: '15.00000000',
+        #             type: '0',
+        #             id: '2814205012',
+        #         }
+        #     ]
+        #
+        result = []
+        for i in range(0, len(response)):
+            order = self.parse_order(response[i], market)
+            result.append(self.extend(order, {
+                'status': 'open',
+                'type': 'limit',
+            }))
+        if symbol is None:
+            return self.filter_by_since_limit(result, since, limit)
+        return self.filter_by_symbol_since_limit(result, symbol, since, limit)
 
     def get_currency_name(self, code):
         if code == 'BTC':
@@ -809,13 +846,12 @@ class bitstamp (Exchange):
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, httpCode, reason, url, method, headers, body, response=None):
+    def handle_errors(self, httpCode, reason, url, method, headers, body, response):
         if not isinstance(body, basestring):
             return  # fallback to default error handler
         if len(body) < 2:
             return  # fallback to default error handler
         if (body[0] == '{') or (body[0] == '['):
-            response = json.loads(body)
             # fetchDepositAddress returns {"error": "No permission found"} on apiKeys that don't have the permission required
             error = self.safe_string(response, 'error')
             exceptions = self.exceptions

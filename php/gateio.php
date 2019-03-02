@@ -42,6 +42,7 @@ class gateio extends Exchange {
                     'https://gate.io/fee',
                     'https://support.gate.io/hc/en-us/articles/115003577673',
                 ),
+                'referral' => 'https://www.gate.io/signup/2436035',
             ),
             'api' => array (
                 'public' => array (
@@ -262,19 +263,18 @@ class gateio extends Exchange {
         );
     }
 
-    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response = null) {
+    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response) {
         if (strlen ($body) <= 0) {
             return;
         }
         if ($body[0] !== '{') {
             return;
         }
-        $jsonbodyParsed = json_decode ($body, $as_associative_array = true);
-        $resultString = $this->safe_string($jsonbodyParsed, 'result', '');
+        $resultString = $this->safe_string($response, 'result', '');
         if ($resultString !== 'false') {
             return;
         }
-        $errorCode = $this->safe_string($jsonbodyParsed, 'code');
+        $errorCode = $this->safe_string($response, 'code');
         if ($errorCode !== null) {
             $exceptions = $this->exceptions;
             $errorCodeNames = $this->errorCodeNames;
@@ -283,7 +283,7 @@ class gateio extends Exchange {
                 if (is_array ($errorCodeNames) && array_key_exists ($errorCode, $errorCodeNames)) {
                     $message = $errorCodeNames[$errorCode];
                 } else {
-                    $message = $this->safe_string($jsonbodyParsed, 'message', '(unknown)');
+                    $message = $this->safe_string($response, 'message', '(unknown)');
                 }
                 throw new $exceptions[$errorCode] ($message);
             }
@@ -567,11 +567,15 @@ class gateio extends Exchange {
         $this->check_address($address);
         $this->load_markets();
         $currency = $this->currency ($code);
-        $response = $this->privatePostWithdraw (array_merge (array (
+        $request = array (
             'currency' => $currency['id'],
             'amount' => $amount,
             'address' => $address, // Address must exist in you AddressBook in security settings
-        ), $params));
+        );
+        if ($tag !== null) {
+            $request['address'] .= ' ' . $tag;
+        }
+        $response = $this->privatePostWithdraw (array_merge ($request, $params));
         return array (
             'info' => $response,
             'id' => null,

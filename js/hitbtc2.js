@@ -11,7 +11,7 @@ module.exports = class hitbtc2 extends hitbtc {
     describe () {
         return this.deepExtend (super.describe (), {
             'id': 'hitbtc2',
-            'name': 'HitBTC v2',
+            'name': 'HitBTC',
             'countries': [ 'HK' ],
             'rateLimit': 1500,
             'version': '2',
@@ -51,7 +51,10 @@ module.exports = class hitbtc2 extends hitbtc {
                 'api': 'https://api.hitbtc.com',
                 'www': 'https://hitbtc.com',
                 'referral': 'https://hitbtc.com/?ref_id=5a5d39a65d466',
-                'doc': 'https://api.hitbtc.com',
+                'doc': [
+                    'https://api.hitbtc.com',
+                    'https://github.com/hitbtc-com/hitbtc-api/blob/master/APIv2.md',
+                ],
                 'fees': [
                     'https://hitbtc.com/fees-and-limits',
                     'https://support.hitbtc.com/hc/en-us/articles/115005148605-Fees-and-limits',
@@ -806,15 +809,18 @@ module.exports = class hitbtc2 extends hitbtc {
         //
         let timestamp = this.parse8601 (trade['timestamp']);
         let symbol = undefined;
-        if (market !== undefined) {
-            symbol = market['symbol'];
-        } else {
-            let id = trade['symbol'];
-            if (id in this.markets_by_id) {
-                market = this.markets_by_id[id];
+        const marketId = this.safeString (trade, 'symbol');
+        if (marketId !== undefined) {
+            if (marketId in this.markets_by_id) {
+                market = this.markets_by_id[marketId];
                 symbol = market['symbol'];
             } else {
-                symbol = id;
+                symbol = marketId;
+            }
+        }
+        if (symbol === undefined) {
+            if (market !== undefined) {
+                symbol = market['symbol'];
             }
         }
         let fee = undefined;
@@ -861,7 +867,7 @@ module.exports = class hitbtc2 extends hitbtc {
             request['startTime'] = since;
         }
         let response = await this.privateGetAccountTransactions (this.extend (request, params));
-        return this.parseTransactions (response);
+        return this.parseTransactions (response, currency, since, limit);
     }
 
     parseTransaction (transaction, currency = undefined) {
@@ -925,7 +931,12 @@ module.exports = class hitbtc2 extends hitbtc {
         }
         const status = this.parseTransactionStatus (this.safeString (transaction, 'status'));
         const amount = this.safeFloat (transaction, 'amount');
-        const type = this.safeString (transaction, 'type');
+        let type = this.safeString (transaction, 'type');
+        if (type === 'payin') {
+            type = 'deposit';
+        } else if (type === 'payout') {
+            type = 'withdrawal';
+        }
         const address = this.safeString (transaction, 'address');
         const txid = this.safeString (transaction, 'hash');
         return {
@@ -1064,9 +1075,21 @@ module.exports = class hitbtc2 extends hitbtc {
         //
         let created = this.parse8601 (this.safeString (order, 'createdAt'));
         let updated = this.parse8601 (this.safeString (order, 'updatedAt'));
-        if (!market)
-            market = this.markets_by_id[order['symbol']];
-        let symbol = market['symbol'];
+        const marketId = this.safeString (order, 'symbol');
+        let symbol = undefined;
+        if (marketId !== undefined) {
+            if (marketId in this.markets_by_id) {
+                market = this.markets_by_id[marketId];
+                symbol = market['symbol'];
+            } else {
+                symbol = marketId;
+            }
+        }
+        if (symbol === undefined) {
+            if (market !== undefined) {
+                symbol = market['id'];
+            }
+        }
         let amount = this.safeFloat (order, 'quantity');
         let filled = this.safeFloat (order, 'cumQuantity');
         let status = this.parseOrderStatus (this.safeString (order, 'status'));
@@ -1204,7 +1227,7 @@ module.exports = class hitbtc2 extends hitbtc {
 
     async fetchMyTrades (symbol = undefined, since = undefined, limit = undefined, params = {}) {
         await this.loadMarkets ();
-        let request = {
+        const request = {
             // 'symbol': 'BTC/USD', // optional
             // 'sort':   'DESC', // or 'ASC'
             // 'by':     'timestamp', // or 'id' String timestamp by default, or id
@@ -1222,7 +1245,33 @@ module.exports = class hitbtc2 extends hitbtc {
             request['from'] = this.iso8601 (since);
         if (limit !== undefined)
             request['limit'] = limit;
-        let response = await this.privateGetHistoryTrades (this.extend (request, params));
+        const response = await this.privateGetHistoryTrades (this.extend (request, params));
+        //
+        //     [
+        //         {
+        //         "id": 9535486,
+        //         "clientOrderId": "f8dbaab336d44d5ba3ff578098a68454",
+        //         "orderId": 816088377,
+        //         "symbol": "ETHBTC",
+        //         "side": "sell",
+        //         "quantity": "0.061",
+        //         "price": "0.045487",
+        //         "fee": "0.000002775",
+        //         "timestamp": "2017-05-17T12:32:57.848Z"
+        //         },
+        //         {
+        //         "id": 9535437,
+        //         "clientOrderId": "27b9bfc068b44194b1f453c7af511ed6",
+        //         "orderId": 816088021,
+        //         "symbol": "ETHBTC",
+        //         "side": "buy",
+        //         "quantity": "0.038",
+        //         "price": "0.046000",
+        //         "fee": "-0.000000174",
+        //         "timestamp": "2017-05-17T12:30:57.848Z"
+        //         }
+        //     ]
+        //
         return this.parseTrades (response, market, since, limit);
     }
 
@@ -1296,7 +1345,7 @@ module.exports = class hitbtc2 extends hitbtc {
     }
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
-        let url = '/api' + '/' + this.version + '/';
+        let url = '/api/' + this.version + '/';
         let query = this.omit (params, this.extractParams (path));
         if (api === 'public') {
             url += api + '/' + this.implodeParams (path, params);
@@ -1323,7 +1372,7 @@ module.exports = class hitbtc2 extends hitbtc {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response = undefined) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if (typeof body !== 'string')
             return;
         if (code >= 400) {
@@ -1333,7 +1382,6 @@ module.exports = class hitbtc2 extends hitbtc {
                 throw new ExchangeNotAvailable (feedback);
             // {"error":{"code":20002,"message":"Order not found","description":""}}
             if (body[0] === '{') {
-                response = JSON.parse (body);
                 if ('error' in response) {
                     const code = this.safeString (response['error'], 'code');
                     const exceptions = this.exceptions;

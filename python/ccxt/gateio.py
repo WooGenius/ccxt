@@ -13,7 +13,6 @@ except NameError:
     basestring = str  # Python 2
 import hashlib
 import math
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import InsufficientFunds
@@ -58,6 +57,7 @@ class gateio (Exchange):
                     'https://gate.io/fee',
                     'https://support.gate.io/hc/en-us/articles/115003577673',
                 ],
+                'referral': 'https://www.gate.io/signup/2436035',
             },
             'api': {
                 'public': {
@@ -266,16 +266,15 @@ class gateio (Exchange):
             'info': ticker,
         }
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if len(body) <= 0:
             return
         if body[0] != '{':
             return
-        jsonbodyParsed = json.loads(body)
-        resultString = self.safe_string(jsonbodyParsed, 'result', '')
+        resultString = self.safe_string(response, 'result', '')
         if resultString != 'false':
             return
-        errorCode = self.safe_string(jsonbodyParsed, 'code')
+        errorCode = self.safe_string(response, 'code')
         if errorCode is not None:
             exceptions = self.exceptions
             errorCodeNames = self.errorCodeNames
@@ -284,7 +283,7 @@ class gateio (Exchange):
                 if errorCode in errorCodeNames:
                     message = errorCodeNames[errorCode]
                 else:
-                    message = self.safe_string(jsonbodyParsed, 'message', '(unknown)')
+                    message = self.safe_string(response, 'message', '(unknown)')
                 raise exceptions[errorCode](message)
 
     def fetch_tickers(self, symbols=None, params={}):
@@ -535,11 +534,14 @@ class gateio (Exchange):
         self.check_address(address)
         self.load_markets()
         currency = self.currency(code)
-        response = self.privatePostWithdraw(self.extend({
+        request = {
             'currency': currency['id'],
             'amount': amount,
             'address': address,  # Address must exist in you AddressBook in security settings
-        }, params))
+        }
+        if tag is not None:
+            request['address'] += ' ' + tag
+        response = self.privatePostWithdraw(self.extend(request, params))
         return {
             'info': response,
             'id': None,

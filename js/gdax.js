@@ -83,6 +83,7 @@ module.exports = class gdax extends Exchange {
                         'users/self/trailing-volume',
                     ],
                     'post': [
+                        'conversions',
                         'deposits/coinbase-account',
                         'deposits/payment-method',
                         'coinbase-accounts/{id}/addresses',
@@ -168,7 +169,11 @@ module.exports = class gdax extends Exchange {
             if ((base === 'ETH') || (base === 'LTC')) {
                 taker = 0.003;
             }
-            let active = market['status'] === 'online';
+            let accessible = true;
+            if ('accessible' in market) {
+                accessible = this.safeValue (market, 'accessible');
+            }
+            const active = (market['status'] === 'online') && accessible;
             result.push (this.extend (this.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
@@ -227,7 +232,7 @@ module.exports = class gdax extends Exchange {
             'id': market['id'],
         }, params);
         let ticker = await this.publicGetProductsIdTicker (request);
-        let timestamp = this.parse8601 (ticker['time']);
+        let timestamp = this.parse8601 (this.safeValue (ticker, 'time'));
         let bid = undefined;
         let ask = undefined;
         if ('bid' in ticker)
@@ -270,11 +275,12 @@ module.exports = class gdax extends Exchange {
             symbol = market['symbol'];
         let feeRate = undefined;
         let feeCurrency = undefined;
+        let takerOrMaker = undefined;
         if (market !== undefined) {
             feeCurrency = market['quote'];
             if ('liquidity' in trade) {
-                let rateType = (trade['liquidity'] === 'T') ? 'taker' : 'maker';
-                feeRate = market[rateType];
+                takerOrMaker = (trade['liquidity'] === 'T') ? 'taker' : 'maker';
+                feeRate = market[takerOrMaker];
             }
         }
         let feeCost = this.safeFloat (trade, 'fill_fees');
@@ -302,6 +308,7 @@ module.exports = class gdax extends Exchange {
             'datetime': this.iso8601 (timestamp),
             'symbol': symbol,
             'type': type,
+            'takerOrMaker': takerOrMaker,
             'side': side,
             'price': price,
             'amount': amount,
@@ -599,7 +606,7 @@ module.exports = class gdax extends Exchange {
         for (let i = 0; i < response.length; i++) {
             response[i]['currency'] = code;
         }
-        return this.parseTransactions (response);
+        return this.parseTransactions (response, currency, since, limit);
     }
 
     parseTransactionStatus (transaction) {
@@ -607,9 +614,9 @@ module.exports = class gdax extends Exchange {
             return 'canceled';
         } else if ('completed_at' in transaction && transaction['completed_at']) {
             return 'ok';
-        } else if (('canceled_at' in transaction && !transaction['canceled_at']) && ('completed_at' in transaction && !transaction['completed_at']) && ('processed_at' in transaction && !transaction['processed_at'])) {
+        } else if ((('canceled_at' in transaction) && !transaction['canceled_at']) && (('completed_at' in transaction) && !transaction['completed_at']) && (('processed_at' in transaction) && !transaction['processed_at'])) {
             return 'pending';
-        } else if ('procesed_at' in transaction && transaction['procesed_at']) {
+        } else if ('processed_at' in transaction && transaction['processed_at']) {
             return 'pending';
         } else {
             return 'failed';
@@ -720,10 +727,9 @@ module.exports = class gdax extends Exchange {
         };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response = undefined) {
+    handleErrors (code, reason, url, method, headers, body, response) {
         if ((code === 400) || (code === 404)) {
             if (body[0] === '{') {
-                response = JSON.parse (body);
                 let message = response['message'];
                 let feedback = this.id + ' ' + message;
                 const exact = this.exceptions['exact'];

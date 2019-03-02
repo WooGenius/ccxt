@@ -4,12 +4,12 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.base.exchange import Exchange
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import PermissionDenied
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidAddress
 from ccxt.base.errors import InvalidOrder
+from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import InvalidNonce
 
 
@@ -188,6 +188,7 @@ class cobinhood (Exchange):
                 'invalid_nonce': InvalidNonce,
                 'unauthorized_scope': PermissionDenied,
                 'invalid_address': InvalidAddress,
+                'parameter_error': OrderNotFound,
             },
             'commonCurrencies': {
                 'SMT': 'SocialMedia.Market',
@@ -768,12 +769,11 @@ class cobinhood (Exchange):
             body = self.json(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if code < 400 or code >= 600:
             return
         if body[0] != '{':
             raise ExchangeError(self.id + ' ' + body)
-        response = json.loads(body)
         feedback = self.id + ' ' + self.json(response)
         errorCode = self.safe_value(response['error'], 'error_code')
         if method == 'DELETE' or method == 'GET':

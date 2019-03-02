@@ -700,7 +700,7 @@ class liqui extends Exchange {
         );
         // no docs on the $tag, yet...
         if ($tag !== null) {
-            throw new ExchangeError ($this->id . ' withdraw() does not support the $tag argument yet due to a lack of docs on withdrawing with $tag/memo on behalf of the exchange.');
+            throw new ExchangeError ($this->id . ' withdraw() does not support the $tag argument yet due to a lack of docs on withdrawing with tag/memo on behalf of the exchange.');
         }
         $response = $this->privatePostWithdrawCoin (array_merge ($request, $params));
         return array (
@@ -761,10 +761,9 @@ class liqui extends Exchange {
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 
-    public function handle_errors ($httpCode, $reason, $url, $method, $headers, $body, $response = null) {
+    public function handle_errors ($httpCode, $reason, $url, $method, $headers, $body, $response) {
         if (!$this->is_json_encoded_object($body))
             return; // fallback to default error handler
-        $response = json_decode ($body, $as_associative_array = true);
         if (is_array ($response) && array_key_exists ('success', $response)) {
             //
             // 1 - Liqui only returns the integer 'success' key from their private API

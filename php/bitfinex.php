@@ -508,10 +508,9 @@ class bitfinex extends Exchange {
         $tickers = $this->publicGetTickers ($params);
         $result = array ();
         for ($i = 0; $i < count ($tickers); $i++) {
-            $ticker = $tickers[$i];
-            $parsedTicker = $this->parse_ticker($ticker);
-            $symbol = $parsedTicker['symbol'];
-            $result[$symbol] = $parsedTicker;
+            $ticker = $this->parse_ticker($tickers[$i]);
+            $symbol = $ticker['symbol'];
+            $result[$symbol] = $ticker;
         }
         return $result;
     }
@@ -633,6 +632,7 @@ class bitfinex extends Exchange {
     public function create_order ($symbol, $type, $side, $amount, $price = null, $params = array ()) {
         $this->load_markets();
         $orderType = $type;
+        // todo => support more $order types (“exchange stop” / “exchange trailing-stop” / “exchange fill-or-kill”)
         if (($type === 'limit') || ($type === 'market'))
             $orderType = 'exchange ' . $type;
         $amount = $this->amount_to_precision($symbol, $amount);
@@ -962,8 +962,8 @@ class bitfinex extends Exchange {
                 'nonce' => (string) $nonce,
                 'request' => $request,
             ), $query);
-            $query = $this->json ($query);
-            $query = $this->encode ($query);
+            $body = $this->json ($query);
+            $query = $this->encode ($body);
             $payload = base64_encode ($query);
             $secret = $this->encode ($this->secret);
             $signature = $this->hmac ($payload, $secret, 'sha384');
@@ -976,12 +976,11 @@ class bitfinex extends Exchange {
         return array ( 'url' => $url, 'method' => $method, 'body' => $body, 'headers' => $headers );
     }
 
-    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response = null) {
+    public function handle_errors ($code, $reason, $url, $method, $headers, $body, $response) {
         if (strlen ($body) < 2)
             return;
         if ($code >= 400) {
             if ($body[0] === '{') {
-                $response = json_decode ($body, $as_associative_array = true);
                 $feedback = $this->id . ' ' . $this->json ($response);
                 $message = null;
                 if (is_array ($response) && array_key_exists ('message', $response)) {
