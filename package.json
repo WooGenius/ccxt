@@ -47,7 +47,9 @@
     "postinstall": "node postinstall"
   },
   "types": "./ccxt.d.ts",
-  "dependencies": {},
+  "dependencies": {
+    "crypto-js": "^3.1.9-1"
+  },
   "devDependencies": {
     "ansicolor": "1.1.81",
     "as-table": "1.0.37",
