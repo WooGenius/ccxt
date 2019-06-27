@@ -31,6 +31,7 @@ class ethfinex extends bitfinex {
                 'fetchOpenOrders' => true,
                 'fetchOrder' => true,
                 'fetchTickers' => true,
+                'fetchTradingFee' => true,
                 'fetchTradingFees' => true,
                 'withdraw' => true,
             ),
@@ -50,7 +51,11 @@ class ethfinex extends bitfinex {
             ),
             'urls' => array (
                 'logo' => 'https://user-images.githubusercontent.com/1294454/37555526-7018a77c-29f9-11e8-8835-8e415c038a18.jpg',
-                'api' => 'https://api.ethfinex.com',
+                'api' => array (
+                    'v2' => 'https://api.ethfinex.com',
+                    'public' => 'https://api.ethfinex.com',
+                    'private' => 'https://api.ethfinex.com',
+                ),
                 'www' => 'https://www.ethfinex.com',
                 'doc' => array (
                     'https://bitfinex.readme.io/v1/docs',

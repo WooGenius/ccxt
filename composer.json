@@ -231,6 +231,8 @@
         "ext-curl": "*",
         "ext-iconv": "*",
         "ext-pcre": "*",
+        "ext-json": "*",
+        "ext-openssl": "*",
         "kornrunner/secp256k1": "0.1.0",
         "ext-gmp": "*",
         "symfony/polyfill-mbstring": "^1.7",
@@ -241,11 +243,11 @@
     "archive": {
         "exclude": [
             "/build",
+            "/dist",
             "/doc",
             "/js",
             "/python",
-            "/wiki",
-            "/ccxt.wiki"
+            "/wiki"
         ]
     },
     "require-dev": {
