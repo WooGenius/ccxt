@@ -7,7 +7,7 @@ from ccxt.async_support.base.exchange import Exchange
 from ccxt.base.errors import ExchangeError
 
 
-class flowbtc (Exchange):
+class flowbtc(Exchange):
 
     def describe(self):
         return self.deep_extend(super(flowbtc, self).describe(), {
@@ -168,7 +168,7 @@ class flowbtc (Exchange):
         }
 
     def parse_trade(self, trade, market):
-        timestamp = self.safe_integer(trade, 'unixtime') * 1000
+        timestamp = self.safe_timestamp(trade, 'unixtime')
         side = 'buy' if (trade['incomingOrderSide'] == 0) else 'sell'
         id = self.safe_string(trade, 'tid')
         price = self.safe_float(trade, 'px')

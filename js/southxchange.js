@@ -40,9 +40,11 @@ module.exports = class southxchange extends Exchange {
                     'post': [
                         'cancelMarketOrders',
                         'cancelOrder',
+                        'getOrder',
                         'generatenewaddress',
                         'listOrders',
                         'listBalances',
+                        'listTransactions',
                         'placeOrder',
                         'withdraw',
                     ],
@@ -52,8 +54,8 @@ module.exports = class southxchange extends Exchange {
                 'trading': {
                     'tierBased': false,
                     'percentage': true,
-                    'maker': 0.2 / 100,
-                    'taker': 0.2 / 100,
+                    'maker': 0.1 / 100,
+                    'taker': 0.3 / 100,
                 },
             },
             'commonCurrencies': {
@@ -73,7 +75,7 @@ module.exports = class southxchange extends Exchange {
             const base = this.safeCurrencyCode (baseId);
             const quote = this.safeCurrencyCode (quoteId);
             const symbol = base + '/' + quote;
-            const id = symbol;
+            const id = baseId + '/' + quoteId;
             result.push ({
                 'id': id,
                 'symbol': symbol,
@@ -177,10 +179,7 @@ module.exports = class southxchange extends Exchange {
     }
 
     parseTrade (trade, market) {
-        let timestamp = this.safeInteger (trade, 'At');
-        if (timestamp !== undefined) {
-            timestamp = timestamp * 1000;
-        }
+        const timestamp = this.safeTimestamp (trade, 'At');
         const price = this.safeFloat (trade, 'Price');
         const amount = this.safeFloat (trade, 'Amount');
         let cost = undefined;
@@ -241,10 +240,7 @@ module.exports = class southxchange extends Exchange {
             }
         }
         const type = 'limit';
-        let side = this.safeString (order, 'Type');
-        if (side !== undefined) {
-            side = side.toLowerCase ();
-        }
+        const side = this.safeStringLower (order, 'Type');
         const id = this.safeString (order, 'Code');
         const result = {
             'info': order,

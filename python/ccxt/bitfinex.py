@@ -15,13 +15,13 @@ from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import NotSupported
-from ccxt.base.errors import DDoSProtection
+from ccxt.base.errors import RateLimitExceeded
 from ccxt.base.errors import ExchangeNotAvailable
 from ccxt.base.errors import InvalidNonce
 from ccxt.base.decimal_to_precision import SIGNIFICANT_DIGITS
 
 
-class bitfinex (Exchange):
+class bitfinex(Exchange):
 
     def describe(self):
         return self.deep_extend(super(bitfinex, self).describe(), {
@@ -74,6 +74,7 @@ class bitfinex (Exchange):
                     'private': 'https://api.bitfinex.com',
                 },
                 'www': 'https://www.bitfinex.com',
+                'referral': 'https://www.bitfinex.com/?refcode=P61eYxFL',
                 'doc': [
                     'https://docs.bitfinex.com/v1/docs',
                     'https://github.com/bitfinexcom/bitfinex-api-node',
@@ -290,6 +291,7 @@ class bitfinex (Exchange):
             'commonCurrencies': {
                 'ABS': 'ABYSS',
                 'AIO': 'AION',
+                'ALG': 'ALGO',  # https://github.com/ccxt/ccxt/issues/6034
                 'AMP': 'AMPL',
                 'ATM': 'ATMI',
                 'ATO': 'ATOM',  # https://github.com/ccxt/ccxt/issues/5118
@@ -298,6 +300,7 @@ class bitfinex (Exchange):
                 'DAD': 'DADI',
                 'DAT': 'DATA',
                 'DSH': 'DASH',
+                'DRK': 'DRK',
                 'GSD': 'GUSD',
                 'HOT': 'Hydro Protocol',
                 'IOS': 'IOST',
@@ -319,6 +322,7 @@ class bitfinex (Exchange):
                 'UDC': 'USDC',
                 'UST': 'USDT',
                 'UTN': 'UTNP',
+                'VSY': 'VSYS',
                 'XCH': 'XCHF',
             },
             'exceptions': {
@@ -330,16 +334,16 @@ class bitfinex (Exchange):
                     'Could not find a key matching the given X-BFX-APIKEY.': AuthenticationError,
                     'Key price should be a decimal number, e.g. "123.456"': InvalidOrder,  # on isNaN(price)
                     'Key amount should be a decimal number, e.g. "123.456"': InvalidOrder,  # on isNaN(amount)
-                    'ERR_RATE_LIMIT': DDoSProtection,
-                    'Ratelimit': DDoSProtection,
+                    'ERR_RATE_LIMIT': RateLimitExceeded,
+                    'Ratelimit': RateLimitExceeded,
                     'Nonce is too small.': InvalidNonce,
                     'No summary found.': ExchangeError,  # fetchTradingFees(summary) endpoint can give self vague error message
                     'Cannot evaluate your available balance, please try again': ExchangeNotAvailable,
                 },
                 'broad': {
                     'This API key does not have permission': PermissionDenied,  # authenticated but not authorized
-                    'Invalid order: not enough exchange balance for ': InsufficientFunds,  # when buying cost is greater than the available quote currency
-                    'Invalid order: minimum size for ': InvalidOrder,  # when amount below limits.amount.min
+                    'not enough exchange balance for ': InsufficientFunds,  # when buying cost is greater than the available quote currency
+                    'minimum size for ': InvalidOrder,  # when amount below limits.amount.min
                     'Invalid order': InvalidOrder,  # ?
                     'The available balance is only': InsufficientFunds,  # {"status":"error","message":"Cannot withdraw 1.0027 ETH from your exchange wallet. The available balance is only 0.0 ETH. If you have limit orders, open positions, unused or active margin funding, self will decrease your available balance. To increase it, you can cancel limit orders or reduce/close your positions.","withdrawal_id":0,"fees":"0.0027"}
                 },
@@ -353,7 +357,9 @@ class bitfinex (Exchange):
                     'ANT': 'ant',
                     'AVT': 'aventus',  # #1811
                     'BAT': 'bat',
-                    'BCH': 'bcash',  # undocumented
+                    # https://github.com/ccxt/ccxt/issues/5833
+                    'BCH': 'bab',  # undocumented
+                    # 'BCH': 'bcash',  # undocumented
                     'BCI': 'bci',
                     'BFT': 'bft',
                     'BTC': 'bitcoin',
@@ -374,6 +380,9 @@ class bitfinex (Exchange):
                     'GNT': 'golem',
                     'IOST': 'ios',
                     'IOTA': 'iota',
+                    # https://github.com/ccxt/ccxt/issues/5833
+                    'LEO': 'let',  # ETH chain
+                    # 'LEO': 'les',  # EOS chain
                     'LRC': 'lrc',
                     'LTC': 'litecoin',
                     'LYM': 'lym',
@@ -400,8 +409,13 @@ class bitfinex (Exchange):
                     'TNB': 'tnb',
                     'TRX': 'trx',
                     'USD': 'wire',
+                    'USDC': 'udc',  # https://github.com/ccxt/ccxt/issues/5833
                     'UTK': 'utk',
-                    'USDT': 'tetheruso',  # undocumented
+                    'USDT': 'tetheruso',  # Tether on Omni
+                    # 'USDT': 'tetheruse',  # Tether on ERC20
+                    # 'USDT': 'tetherusl',  # Tether on Liquid
+                    # 'USDT': 'tetherusx',  # Tether on Tron
+                    # 'USDT': 'tetheruss',  # Tether on EOS
                     'VEE': 'vee',
                     'WAX': 'wax',
                     'XLM': 'xlm',
@@ -556,7 +570,7 @@ class bitfinex (Exchange):
                 # we need a workaround here so that the old BCH balance
                 # would not override the new BAB balance(BAB is unified to BCH)
                 # https://github.com/ccxt/ccxt/issues/4989
-                if not(code in list(result.keys())):
+                if not (code in result):
                     account = self.account()
                     account['free'] = self.safe_float(balance, 'available')
                     account['total'] = self.safe_float(balance, 'amount')
@@ -642,9 +656,7 @@ class bitfinex (Exchange):
         if timestamp is not None:
             timestamp = int(timestamp) * 1000
         type = None
-        side = self.safe_string(trade, 'type')
-        if side is not None:
-            side = side.lower()
+        side = self.safe_string_lower(trade, 'type')
         orderId = self.safe_string(trade, 'order_id')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'amount')
@@ -800,7 +812,7 @@ class bitfinex (Exchange):
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
         self.load_markets()
         if symbol is not None:
-            if not(symbol in list(self.markets.keys())):
+            if not (symbol in self.markets):
                 raise ExchangeError(self.id + ' has no symbol ' + symbol)
         response = self.privatePostOrders(params)
         orders = self.parse_orders(response, None, since, limit)
@@ -926,9 +938,11 @@ class bitfinex (Exchange):
         #         }
         #     ]
         #
-        return self.parseTransactions(response, currency, since, limit)
+        return self.parse_transactions(response, currency, since, limit)
 
     def parse_transaction(self, transaction, currency=None):
+        #
+        # crypto
         #
         #     {
         #         "id": 12042490,
@@ -945,6 +959,23 @@ class bitfinex (Exchange):
         #         "timestamp_created": "1551730523.0"
         #     }
         #
+        # fiat
+        #
+        #     {
+        #         "id": 12725095,
+        #         "fee": "-60.0",
+        #         "txid": null,
+        #         "type": "WITHDRAWAL",
+        #         "amount": "9943.0",
+        #         "method": "WIRE",
+        #         "status": "SENDING",
+        #         "address": null,
+        #         "currency": "EUR",
+        #         "timestamp": "1561802484.0",
+        #         "description": "Name: bob, AccountAddress: some address, Account: someaccountno, Bank: bank address, SWIFT: foo, Country: UK, Details of Payment: withdrawal name, Intermediary Bank Name: , Intermediary Bank Address: , Intermediary Bank City: , Intermediary Bank Country: , Intermediary Bank Account: , Intermediary Bank SWIFT: , Fee: -60.0",
+        #         "timestamp_created": "1561716066.0"
+        #     }
+        #
         timestamp = self.safe_float(transaction, 'timestamp_created')
         if timestamp is not None:
             timestamp = int(timestamp * 1000)
@@ -953,9 +984,7 @@ class bitfinex (Exchange):
             updated = int(updated * 1000)
         currencyId = self.safe_string(transaction, 'currency')
         code = self.safe_currency_code(currencyId, currency)
-        type = self.safe_string(transaction, 'type')  # DEPOSIT or WITHDRAWAL
-        if type is not None:
-            type = type.lower()
+        type = self.safe_string_lower(transaction, 'type')  # DEPOSIT or WITHDRAWAL
         status = self.parse_transaction_status(self.safe_string(transaction, 'status'))
         feeCost = self.safe_float(transaction, 'fee')
         if feeCost is not None:
@@ -982,6 +1011,7 @@ class bitfinex (Exchange):
 
     def parse_transaction_status(self, status):
         statuses = {
+            'SENDING': 'pending',
             'CANCELED': 'canceled',
             'ZEROCONFIRMED': 'failed',  # ZEROCONFIRMED happens e.g. in a double spend attempt(I had one in my movementsnot )
             'COMPLETED': 'ok',
@@ -1003,7 +1033,7 @@ class bitfinex (Exchange):
         response = responses[0]
         id = self.safe_string(response, 'withdrawal_id')
         message = self.safe_string(response, 'message')
-        errorMessage = self.findBroadlyMatchedKey(self.exceptions['broad'], message)
+        errorMessage = self.find_broadly_matched_key(self.exceptions['broad'], message)
         if id == 0:
             if errorMessage is not None:
                 ExceptionClass = self.exceptions['broad'][errorMessage]
@@ -1049,24 +1079,13 @@ class bitfinex (Exchange):
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if response is None:
             return
         if code >= 400:
             if body[0] == '{':
-                feedback = self.id + ' ' + self.json(response)
-                message = None
-                if 'message' in response:
-                    message = response['message']
-                elif 'error' in response:
-                    message = response['error']
-                else:
-                    raise ExchangeError(feedback)  # malformed(to our knowledge) response
-                exact = self.exceptions['exact']
-                if message in exact:
-                    raise exact[message](feedback)
-                broad = self.exceptions['broad']
-                broadKey = self.findBroadlyMatchedKey(broad, message)
-                if broadKey is not None:
-                    raise broad[broadKey](feedback)
+                feedback = self.id + ' ' + body
+                message = self.safe_string_2(response, 'message', 'error')
+                self.throw_exactly_matched_exception(self.exceptions['exact'], message, feedback)
+                self.throw_broadly_matched_exception(self.exceptions['broad'], message, feedback)
                 raise ExchangeError(feedback)  # unknown message

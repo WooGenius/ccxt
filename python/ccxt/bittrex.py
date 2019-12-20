@@ -16,17 +16,19 @@ import math
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import PermissionDenied
+from ccxt.base.errors import BadSymbol
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import AddressPending
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import ExchangeNotAvailable
+from ccxt.base.errors import OnMaintenance
 from ccxt.base.decimal_to_precision import TRUNCATE
 from ccxt.base.decimal_to_precision import DECIMAL_PLACES
 
 
-class bittrex (Exchange):
+class bittrex(Exchange):
 
     def describe(self):
         return self.deep_extend(super(bittrex, self).describe(), {
@@ -236,14 +238,13 @@ class bittrex (Exchange):
                 'INVALID_ORDER': InvalidOrder,
                 'UUID_INVALID': OrderNotFound,
                 'RATE_NOT_PROVIDED': InvalidOrder,  # createLimitBuyOrder('ETH/BTC', 1, 0)
+                'INVALID_MARKET': BadSymbol,  # {"success":false,"message":"INVALID_MARKET","result":null,"explanation":null}
                 'WHITELIST_VIOLATION_IP': PermissionDenied,
                 'DUST_TRADE_DISALLOWED_MIN_VALUE': InvalidOrder,
+                'RESTRICTED_MARKET': BadSymbol,
+                'We are down for scheduled maintenance, but we\u2019ll be back up shortly.': OnMaintenance,  # {"success":false,"message":"We are down for scheduled maintenance, but we\u2019ll be back up shortly.","result":null,"explanation":null}
             },
             'options': {
-                # price precision by quote currency code
-                'pricePrecisionByCode': {
-                    'USD': 3,
-                },
                 'parseOrderStatus': False,
                 'hasAlreadyAuthenticatedSuccessfully': False,  # a workaround for APIKEY_INVALID
                 'symbolSeparator': '-',
@@ -273,7 +274,7 @@ class bittrex (Exchange):
             },
             'commonCurrencies': {
                 'BITS': 'SWIFT',
-                'CPC': 'CapriCoin',
+                'CPC': 'Capricoin',
             },
         })
 
@@ -284,32 +285,52 @@ class bittrex (Exchange):
         return self.decimal_to_precision(fee, TRUNCATE, self.markets[symbol]['precision']['price'], DECIMAL_PLACES)
 
     def fetch_markets(self, params={}):
-        # https://github.com/ccxt/ccxt/commit/866370ba6c9cabaf5995d992c15a82e38b8ca291
-        # https://github.com/ccxt/ccxt/pull/4304
-        response = self.publicGetMarkets(params)
+        response = self.v3publicGetMarkets(params)
+        #
+        #     [
+        #         {
+        #             "symbol":"LTC-BTC",
+        #             "baseCurrencySymbol":"LTC",
+        #             "quoteCurrencySymbol":"BTC",
+        #             "minTradeSize":"0.01686767",
+        #             "precision":8,
+        #             "status":"ONLINE",  # "OFFLINE"
+        #             "createdAt":"2014-02-13T00:00:00Z"
+        #         },
+        #         {
+        #             "symbol":"VDX-USDT",
+        #             "baseCurrencySymbol":"VDX",
+        #             "quoteCurrencySymbol":"USDT",
+        #             "minTradeSize":"300.00000000",
+        #             "precision":8,
+        #             "status":"ONLINE",  # "OFFLINE"
+        #             "createdAt":"2019-05-23T00:41:21.843Z",
+        #             "notice":"USDT has swapped to an ERC20-based token as of August 5, 2019."
+        #         }
+        #     ]
+        #
         result = []
-        markets = self.safe_value(response, 'result')
-        for i in range(0, len(markets)):
-            market = markets[i]
-            id = self.safe_string(market, 'MarketName')
-            baseId = self.safe_string(market, 'MarketCurrency')
-            quoteId = self.safe_string(market, 'BaseCurrency')
+        # markets = self.safe_value(response, 'result')
+        for i in range(0, len(response)):
+            market = response[i]
+            baseId = self.safe_string(market, 'baseCurrencySymbol')
+            quoteId = self.safe_string(market, 'quoteCurrencySymbol')
+            # bittrex v2 uses inverted pairs, v3 uses regular pairs
+            # we use v3 for fetchMarkets and v2 throughout the rest of self implementation
+            # therefore we swap the base ←→ quote here to be v2-compatible
+            # https://github.com/ccxt/ccxt/issues/5634
+            # id = self.safe_string(market, 'symbol')
+            id = quoteId + self.options['symbolSeparator'] + baseId
             base = self.safe_currency_code(baseId)
             quote = self.safe_currency_code(quoteId)
             symbol = base + '/' + quote
-            pricePrecision = 8
-            if quote in self.options['pricePrecisionByCode']:
-                pricePrecision = self.options['pricePrecisionByCode'][quote]
+            pricePrecision = self.safe_integer(market, 'precision', 8)
             precision = {
                 'amount': 8,
                 'price': pricePrecision,
             }
-            # bittrex uses boolean values, bleutrade uses strings
-            active = self.safe_value(market, 'IsActive', False)
-            if (active != 'false') and active:
-                active = True
-            else:
-                active = False
+            status = self.safe_string(market, 'status')
+            active = (status == 'ONLINE')
             result.append({
                 'id': id,
                 'symbol': symbol,
@@ -322,7 +343,7 @@ class bittrex (Exchange):
                 'precision': precision,
                 'limits': {
                     'amount': {
-                        'min': self.safe_float(market, 'MinTradeSize'),
+                        'min': self.safe_float(market, 'minTradeSize'),
                         'max': None,
                     },
                     'price': {
@@ -339,22 +360,15 @@ class bittrex (Exchange):
         balances = self.safe_value(response, 'result')
         result = {'info': balances}
         indexed = self.index_by(balances, 'Currency')
-        keys = list(indexed.keys())
-        for i in range(0, len(keys)):
-            id = keys[i]
-            currency = self.safe_currency_code(id)
+        currencyIds = list(indexed.keys())
+        for i in range(0, len(currencyIds)):
+            currencyId = currencyIds[i]
+            code = self.safe_currency_code(currencyId)
             account = self.account()
-            balance = indexed[id]
-            free = self.safe_float(balance, 'Available', 0)
-            total = self.safe_float(balance, 'Balance', 0)
-            used = None
-            if total is not None:
-                if free is not None:
-                    used = total - free
-            account['free'] = free
-            account['used'] = used
-            account['total'] = total
-            result[currency] = account
+            balance = indexed[currencyId]
+            account['free'] = self.safe_float(balance, 'Available')
+            account['total'] = self.safe_float(balance, 'Balance')
+            result[code] = account
         return self.parse_balance(result)
 
     def fetch_order_book(self, symbol, limit=None, params={}):
@@ -377,43 +391,6 @@ class bittrex (Exchange):
                     'sell': response['result'],
                 }
         return self.parse_order_book(orderbook, None, 'buy', 'sell', 'Rate', 'Quantity')
-
-    def parse_ticker(self, ticker, market=None):
-        timestamp = self.parse8601(self.safe_string(ticker, 'TimeStamp'))
-        symbol = None
-        if market is not None:
-            symbol = market['symbol']
-        previous = self.safe_float(ticker, 'PrevDay')
-        last = self.safe_float(ticker, 'Last')
-        change = None
-        percentage = None
-        if last is not None:
-            if previous is not None:
-                change = last - previous
-                if previous > 0:
-                    percentage = (change / previous) * 100
-        return {
-            'symbol': symbol,
-            'timestamp': timestamp,
-            'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'High'),
-            'low': self.safe_float(ticker, 'Low'),
-            'bid': self.safe_float(ticker, 'Bid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'Ask'),
-            'askVolume': None,
-            'vwap': None,
-            'open': previous,
-            'close': last,
-            'last': last,
-            'previousClose': None,
-            'change': change,
-            'percentage': percentage,
-            'average': None,
-            'baseVolume': self.safe_float(ticker, 'Volume'),
-            'quoteVolume': self.safe_float(ticker, 'BaseVolume'),
-            'info': ticker,
-        }
 
     def fetch_currencies(self, params={}):
         response = self.publicGetCurrencies(params)
@@ -462,11 +439,11 @@ class bittrex (Exchange):
                 'limits': {
                     'amount': {
                         'min': math.pow(10, -precision),
-                        'max': math.pow(10, precision),
+                        'max': None,
                     },
                     'price': {
                         'min': math.pow(10, -precision),
-                        'max': math.pow(10, precision),
+                        'max': None,
                     },
                     'cost': {
                         'min': None,
@@ -474,29 +451,81 @@ class bittrex (Exchange):
                     },
                     'withdraw': {
                         'min': fee,
-                        'max': math.pow(10, precision),
+                        'max': None,
                     },
                 },
             }
         return result
 
+    def parse_ticker(self, ticker, market=None):
+        #
+        #     {
+        #         "MarketName":"BTC-ETH",
+        #         "High":0.02127099,
+        #         "Low":0.02035064,
+        #         "Volume":10288.40271571,
+        #         "Last":0.02070510,
+        #         "BaseVolume":214.64663206,
+        #         "TimeStamp":"2019-09-18T21:03:59.897",
+        #         "Bid":0.02070509,
+        #         "Ask":0.02070510,
+        #         "OpenBuyOrders":1228,
+        #         "OpenSellOrders":5899,
+        #         "PrevDay":0.02082823,
+        #         "Created":"2015-08-14T09:02:24.817"
+        #     }
+        #
+        timestamp = self.parse8601(self.safe_string(ticker, 'TimeStamp'))
+        symbol = None
+        marketId = self.safe_string(ticker, 'MarketName')
+        if marketId is not None:
+            if marketId in self.markets_by_id:
+                market = self.markets_by_id[marketId]
+            else:
+                symbol = self.parse_symbol(marketId)
+        if (symbol is None) and (market is not None):
+            symbol = market['symbol']
+        previous = self.safe_float(ticker, 'PrevDay')
+        last = self.safe_float(ticker, 'Last')
+        change = None
+        percentage = None
+        if last is not None:
+            if previous is not None:
+                change = last - previous
+                if previous > 0:
+                    percentage = (change / previous) * 100
+        return {
+            'symbol': symbol,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'high': self.safe_float(ticker, 'High'),
+            'low': self.safe_float(ticker, 'Low'),
+            'bid': self.safe_float(ticker, 'Bid'),
+            'bidVolume': None,
+            'ask': self.safe_float(ticker, 'Ask'),
+            'askVolume': None,
+            'vwap': None,
+            'open': previous,
+            'close': last,
+            'last': last,
+            'previousClose': None,
+            'change': change,
+            'percentage': percentage,
+            'average': None,
+            'baseVolume': self.safe_float(ticker, 'Volume'),
+            'quoteVolume': self.safe_float(ticker, 'BaseVolume'),
+            'info': ticker,
+        }
+
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
         response = self.publicGetMarketsummaries(params)
-        tickers = self.safe_value(response, 'result')
-        result = {}
-        for t in range(0, len(tickers)):
-            ticker = tickers[t]
-            marketId = self.safe_string(ticker, 'MarketName')
-            market = None
-            symbol = marketId
-            if marketId in self.markets_by_id:
-                market = self.markets_by_id[marketId]
-                symbol = market['symbol']
-            else:
-                symbol = self.parse_symbol(marketId)
-            result[symbol] = self.parse_ticker(ticker, market)
-        return result
+        result = self.safe_value(response, 'result')
+        tickers = []
+        for i in range(0, len(result)):
+            ticker = self.parse_ticker(result[i])
+            tickers.append(ticker)
+        return self.filter_by_array(tickers, 'symbol', symbols)
 
     def fetch_ticker(self, symbol, params={}):
         self.load_markets()
@@ -505,6 +534,29 @@ class bittrex (Exchange):
             'market': market['id'],
         }
         response = self.publicGetMarketsummary(self.extend(request, params))
+        #
+        #     {
+        #         "success":true,
+        #         "message":"",
+        #         "result":[
+        #             {
+        #                 "MarketName":"BTC-ETH",
+        #                 "High":0.02127099,
+        #                 "Low":0.02035064,
+        #                 "Volume":10288.40271571,
+        #                 "Last":0.02070510,
+        #                 "BaseVolume":214.64663206,
+        #                 "TimeStamp":"2019-09-18T21:03:59.897",
+        #                 "Bid":0.02070509,
+        #                 "Ask":0.02070510,
+        #                 "OpenBuyOrders":1228,
+        #                 "OpenSellOrders":5899,
+        #                 "PrevDay":0.02082823,
+        #                 "Created":"2015-08-14T09:02:24.817"
+        #             }
+        #         ]
+        #     }
+        #
         ticker = response['result'][0]
         return self.parse_ticker(ticker, market)
 
@@ -657,8 +709,8 @@ class bittrex (Exchange):
         #
         # we cannot filter by `since` timestamp, as it isn't set by Bittrex
         # see https://github.com/ccxt/ccxt/issues/4067
-        # return self.parseTransactions(response['result'], currency, since, limit)
-        return self.parseTransactions(response['result'], currency, None, limit)
+        # return self.parse_transactions(response['result'], currency, since, limit)
+        return self.parse_transactions(response['result'], currency, None, limit)
 
     def fetch_withdrawals(self, code=None, since=None, limit=None, params={}):
         self.load_markets()
@@ -701,7 +753,7 @@ class bittrex (Exchange):
         #         ]
         #     }
         #
-        return self.parseTransactions(response['result'], currency, since, limit)
+        return self.parse_transactions(response['result'], currency, since, limit)
 
     def parse_transaction(self, transaction, currency=None):
         #
@@ -745,17 +797,17 @@ class bittrex (Exchange):
         code = self.safe_currency_code(currencyId, currency)
         status = 'pending'
         if type == 'deposit':
-            if currency is not None:
-                # deposits numConfirmations never reach the minConfirmations number
-                # we set all of them to 'ok', otherwise they'd all be 'pending'
-                #
-                #     numConfirmations = self.safe_integer(transaction, 'Confirmations', 0)
-                #     minConfirmations = self.safe_integer(currency['info'], 'MinConfirmation')
-                #     if numConfirmations >= minConfirmations:
-                #         status = 'ok'
-                #     }
-                #
-                status = 'ok'
+            #
+            # deposits numConfirmations never reach the minConfirmations number
+            # we set all of them to 'ok', otherwise they'd all be 'pending'
+            #
+            #     numConfirmations = self.safe_integer(transaction, 'Confirmations', 0)
+            #     minConfirmations = self.safe_integer(currency['info'], 'MinConfirmation')
+            #     if numConfirmations >= minConfirmations:
+            #         status = 'ok'
+            #     }
+            #
+            status = 'ok'
         else:
             authorized = self.safe_value(transaction, 'Authorized', False)
             pendingPayment = self.safe_value(transaction, 'PendingPayment', False)
@@ -767,7 +819,7 @@ class bittrex (Exchange):
                 status = 'canceled'
             elif pendingPayment:
                 status = 'pending'
-            elif authorized and(txid is not None):
+            elif authorized and (txid is not None):
                 status = 'ok'
         feeCost = self.safe_float(transaction, 'TxCost')
         if feeCost is None:
@@ -848,7 +900,7 @@ class bittrex (Exchange):
             quote = self.safe_currency_code(quoteId)
             symbol = base + '/' + quote
             feeCurrency = quote
-        direction = self.safe_string(order, 'direction')
+        direction = self.safe_string_lower(order, 'direction')
         createdAt = self.safe_string(order, 'createdAt')
         updatedAt = self.safe_string(order, 'updatedAt')
         closedAt = self.safe_string(order, 'closedAt')
@@ -858,13 +910,13 @@ class bittrex (Exchange):
         elif updatedAt:
             lastTradeTimestamp = self.parse8601(updatedAt)
         timestamp = self.parse8601(createdAt)
-        type = self.safe_string(order, 'type')
+        type = self.safe_string_lower(order, 'type')
         quantity = self.safe_float(order, 'quantity')
         limit = self.safe_float(order, 'limit')
         fillQuantity = self.safe_float(order, 'fillQuantity')
         commission = self.safe_float(order, 'commission')
         proceeds = self.safe_float(order, 'proceeds')
-        status = self.safe_string(order, 'status')
+        status = self.safe_string_lower(order, 'status')
         average = None
         remaining = None
         if fillQuantity is not None:
@@ -881,15 +933,15 @@ class bittrex (Exchange):
             'datetime': self.iso8601(timestamp),
             'lastTradeTimestamp': lastTradeTimestamp,
             'symbol': symbol,
-            'type': type.lower(),
-            'side': direction.lower(),
+            'type': type,
+            'side': direction,
             'price': limit,
             'cost': proceeds,
             'average': average,
             'amount': quantity,
             'filled': fillQuantity,
             'remaining': remaining,
-            'status': status.lower(),
+            'status': status,
             'fee': {
                 'cost': commission,
                 'currency': feeCurrency,
@@ -927,13 +979,13 @@ class bittrex (Exchange):
         # We parse different fields in a very specific order.
         # Order might well be closed and then canceled.
         status = None
-        if ('Opened' in list(order.keys())) and order['Opened']:
+        if ('Opened' in order) and order['Opened']:
             status = 'open'
-        if ('Closed' in list(order.keys())) and order['Closed']:
+        if ('Closed' in order) and order['Closed']:
             status = 'closed'
-        if ('CancelInitiated' in list(order.keys())) and order['CancelInitiated']:
+        if ('CancelInitiated' in order) and order['CancelInitiated']:
             status = 'canceled'
-        if ('Status' in list(order.keys())) and self.options['parseOrderStatus']:
+        if ('Status' in order) and self.options['parseOrderStatus']:
             status = self.parse_order_status(self.safe_string(order, 'Status'))
         symbol = None
         if 'Exchange' in order:
@@ -982,7 +1034,7 @@ class bittrex (Exchange):
         filled = None
         if amount is not None and remaining is not None:
             filled = amount - remaining
-            if (status == 'closed') and(remaining > 0):
+            if (status == 'closed') and (remaining > 0):
                 status = 'canceled'
         if not cost:
             if price and filled:
@@ -1036,6 +1088,7 @@ class bittrex (Exchange):
             'id': self.safe_string(order, 'id'),
             'side': self.safe_string(order, 'side'),
             'order': self.safe_string(order, 'id'),
+            'type': self.safe_string(order, 'type'),
             'price': self.safe_float(order, 'average'),
             'amount': self.safe_float(order, 'filled'),
             'cost': self.safe_float(order, 'cost'),
@@ -1112,7 +1165,7 @@ class bittrex (Exchange):
         #     {success:    True,
         #       message:   "",
         #        result: {Currency: "INCNT",
-        #                   Address: "3PHvQt9bK21f7eVQVdJzrNPcsMzXabEA5Ha"} }}
+        #                   Address: "3PHvQt9bK21f7eVQVdJzrNPcsMzXabEA5Ha"}}}
         #
         address = self.safe_string(response['result'], 'Address')
         message = self.safe_string(response, 'message')
@@ -1189,7 +1242,7 @@ class bittrex (Exchange):
         else:
             self.check_required_credentials()
             url += api + '/'
-            if ((api == 'account') and(path != 'withdraw')) or (path == 'openorders'):
+            if ((api == 'account') and (path != 'withdraw')) or (path == 'openorders'):
                 url += method.lower()
             request = {
                 'apikey': self.apiKey,
@@ -1202,7 +1255,7 @@ class bittrex (Exchange):
             headers = {'apisign': signature}
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if response is None:
             return  # fallback to default error handler
         #
@@ -1217,8 +1270,7 @@ class bittrex (Exchange):
                 success = True if (success == 'true') else False
             if not success:
                 message = self.safe_string(response, 'message')
-                feedback = self.id + ' ' + self.json(response)
-                exceptions = self.exceptions
+                feedback = self.id + ' ' + body
                 if message == 'APIKEY_INVALID':
                     if self.options['hasAlreadyAuthenticatedSuccessfully']:
                         raise DDoSProtection(feedback)
@@ -1255,8 +1307,7 @@ class bittrex (Exchange):
                                 raise OrderNotFound(self.id + ' cancelOrder ' + orderId + ' ' + self.json(response))
                             else:
                                 raise OrderNotFound(self.id + ' cancelOrder ' + self.json(response))
-                if message in exceptions:
-                    raise exceptions[message](feedback)
+                self.throw_exactly_matched_exception(self.exceptions, message, feedback)
                 if message is not None:
                     if message.find('throttled. Try again') >= 0:
                         raise DDoSProtection(feedback)

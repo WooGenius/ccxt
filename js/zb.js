@@ -3,7 +3,7 @@
 //  ---------------------------------------------------------------------------
 
 const Exchange = require ('./base/Exchange');
-const { ExchangeError, ArgumentsRequired, AuthenticationError, InsufficientFunds, OrderNotFound, ExchangeNotAvailable, DDoSProtection, InvalidOrder } = require ('./base/errors');
+const { BadRequest, ExchangeError, ArgumentsRequired, AuthenticationError, InsufficientFunds, OrderNotFound, ExchangeNotAvailable, DDoSProtection, InvalidOrder } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -61,7 +61,7 @@ module.exports = class zb extends Exchange {
                 '3002': InvalidOrder, // 'Invalid price',
                 '3003': InvalidOrder, // 'Invalid amount',
                 '3004': AuthenticationError, // 'User does not exist',
-                '3005': ExchangeError, // 'Invalid parameter',
+                '3005': BadRequest, // 'Invalid parameter',
                 '3006': AuthenticationError, // 'Invalid IP or inconsistent with the bound IP',
                 '3007': AuthenticationError, // 'The request time has expired',
                 '3008': OrderNotFound, // 'Transaction records not found',
@@ -268,6 +268,9 @@ module.exports = class zb extends Exchange {
         const marketFieldName = this.getMarketFieldName ();
         const request = {};
         request[marketFieldName] = market['id'];
+        if (limit !== undefined) {
+            request['size'] = limit;
+        }
         const response = await this.publicGetDepth (this.extend (request, params));
         return this.parseOrderBook (response);
     }
@@ -352,10 +355,7 @@ module.exports = class zb extends Exchange {
     }
 
     parseTrade (trade, market = undefined) {
-        let timestamp = this.safeInteger (trade, 'date');
-        if (timestamp !== undefined) {
-            timestamp *= 1000;
-        }
+        const timestamp = this.safeTimestamp (trade, 'date');
         let side = this.safeString (trade, 'trade_type');
         side = (side === 'bid') ? 'buy' : 'sell';
         const id = this.safeString (trade, 'tid');
@@ -617,7 +617,7 @@ module.exports = class zb extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (httpCode, reason, url, method, headers, body, response) {
+    handleErrors (httpCode, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (response === undefined) {
             return; // fallback to default error handler
         }
@@ -625,10 +625,8 @@ module.exports = class zb extends Exchange {
             const feedback = this.id + ' ' + body;
             if ('code' in response) {
                 const code = this.safeString (response, 'code');
-                if (code in this.exceptions) {
-                    const ExceptionClass = this.exceptions[code];
-                    throw new ExceptionClass (feedback);
-                } else if (code !== '1000') {
+                this.throwExactlyMatchedException (this.exceptions, code, feedback);
+                if (code !== '1000') {
                     throw new ExchangeError (feedback);
                 }
             }

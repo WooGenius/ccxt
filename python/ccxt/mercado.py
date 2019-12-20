@@ -10,7 +10,7 @@ from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import InvalidOrder
 
 
-class mercado (Exchange):
+class mercado(Exchange):
 
     def describe(self):
         return self.deep_extend(super(mercado, self).describe(), {
@@ -121,9 +121,7 @@ class mercado (Exchange):
         }
         response = self.publicGetCoinTicker(self.extend(request, params))
         ticker = self.safe_value(response, 'ticker', {})
-        timestamp = self.safe_integer(ticker, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(ticker, 'date')
         last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
@@ -149,9 +147,7 @@ class mercado (Exchange):
         }
 
     def parse_trade(self, trade, market=None):
-        timestamp = self.safe_integer(trade, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(trade, 'date')
         symbol = None
         if market is not None:
             symbol = market['symbol']
@@ -321,9 +317,7 @@ class mercado (Exchange):
             market = self.safe_value(self.markets_by_id, marketId)
         if market is not None:
             symbol = market['symbol']
-        timestamp = self.safe_integer(order, 'created_timestamp')
-        if timestamp is not None:
-            timestamp = timestamp * 1000
+        timestamp = self.safe_timestamp(order, 'created_timestamp')
         fee = {
             'cost': self.safe_float(order, 'fee'),
             'currency': market['quote'],
@@ -335,9 +329,7 @@ class mercado (Exchange):
         filled = self.safe_float(order, 'executed_quantity')
         remaining = amount - filled
         cost = filled * average
-        lastTradeTimestamp = self.safe_integer(order, 'updated_timestamp')
-        if lastTradeTimestamp is not None:
-            lastTradeTimestamp = lastTradeTimestamp * 1000
+        lastTradeTimestamp = self.safe_timestamp(order, 'updated_timestamp')
         return {
             'info': order,
             'id': id,
@@ -382,16 +374,16 @@ class mercado (Exchange):
             'address': address,
         }
         if code == 'BRL':
-            account_ref = ('account_ref' in list(params.keys()))
+            account_ref = ('account_ref' in params)
             if not account_ref:
                 raise ExchangeError(self.id + ' requires account_ref parameter to withdraw ' + code)
         elif code != 'LTC':
-            tx_fee = ('tx_fee' in list(params.keys()))
+            tx_fee = ('tx_fee' in params)
             if not tx_fee:
                 raise ExchangeError(self.id + ' requires tx_fee parameter to withdraw ' + code)
             if code == 'XRP':
                 if tag is None:
-                    if not('destination_tag' in list(params.keys())):
+                    if not ('destination_tag' in params):
                         raise ExchangeError(self.id + ' requires a tag argument or destination_tag parameter to withdraw ' + code)
                 else:
                     request['destination_tag'] = tag
@@ -402,11 +394,8 @@ class mercado (Exchange):
         }
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='1m', since=None, limit=None):
-        timestamp = self.safe_integer(ohlcv, 'timestamp')
-        if timestamp is not None:
-            timestamp = timestamp * 1000
         return [
-            timestamp,
+            self.safe_timestamp(ohlcv, 'timestamp'),
             self.safe_float(ohlcv, 'open'),
             self.safe_float(ohlcv, 'high'),
             self.safe_float(ohlcv, 'low'),

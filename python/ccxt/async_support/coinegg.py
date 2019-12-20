@@ -14,7 +14,7 @@ from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import InvalidNonce
 
 
-class coinegg (Exchange):
+class coinegg(Exchange):
 
     def describe(self):
         return self.deep_extend(super(coinegg, self).describe(), {
@@ -264,9 +264,7 @@ class coinegg (Exchange):
         return self.parse_order_book(response)
 
     def parse_trade(self, trade, market=None):
-        timestamp = self.safe_integer(trade, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(trade, 'date')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'amount')
         symbol = market['symbol']
@@ -314,7 +312,7 @@ class coinegg (Exchange):
             key = keys[i]
             currencyId, accountType = key.split('_')
             code = self.safe_currency_code(currencyId)
-            if not(code in list(result.keys())):
+            if not (code in result):
                 result[code] = self.account()
             type = 'used' if (accountType == 'lock') else 'free'
             result[code][type] = self.safe_float(balances, key)
@@ -453,7 +451,7 @@ class coinegg (Exchange):
                 body = query
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if response is None:
             return
         # private endpoints return the following structure:
@@ -471,7 +469,6 @@ class coinegg (Exchange):
         errorCode = self.safe_string(response, 'code')
         errorMessages = self.errorMessages
         message = self.safe_string(errorMessages, errorCode, 'Unknown Error')
-        if errorCode in self.exceptions:
-            raise self.exceptions[errorCode](self.id + ' ' + message)
-        else:
-            raise ExchangeError(self.id + ' ' + message)
+        feedback = self.id + ' ' + message
+        self.throw_exactly_matched_exception(self.exceptions, errorCode, feedback)
+        raise ExchangeError(self.id + ' ' + message)

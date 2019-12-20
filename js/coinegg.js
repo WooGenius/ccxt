@@ -264,10 +264,7 @@ module.exports = class coinegg extends Exchange {
     }
 
     parseTrade (trade, market = undefined) {
-        let timestamp = this.safeInteger (trade, 'date');
-        if (timestamp !== undefined) {
-            timestamp *= 1000;
-        }
+        const timestamp = this.safeTimestamp (trade, 'date');
         const price = this.safeFloat (trade, 'price');
         const amount = this.safeFloat (trade, 'amount');
         const symbol = market['symbol'];
@@ -478,7 +475,7 @@ module.exports = class coinegg extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response) {
+    handleErrors (code, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (response === undefined) {
             return;
         }
@@ -499,10 +496,8 @@ module.exports = class coinegg extends Exchange {
         const errorCode = this.safeString (response, 'code');
         const errorMessages = this.errorMessages;
         const message = this.safeString (errorMessages, errorCode, 'Unknown Error');
-        if (errorCode in this.exceptions) {
-            throw new this.exceptions[errorCode] (this.id + ' ' + message);
-        } else {
-            throw new ExchangeError (this.id + ' ' + message);
-        }
+        const feedback = this.id + ' ' + message;
+        this.throwExactlyMatchedException (this.exceptions, errorCode, feedback);
+        throw new ExchangeError (this.id + ' ' + message);
     }
 };

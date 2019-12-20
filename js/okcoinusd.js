@@ -3,7 +3,7 @@
 //  ---------------------------------------------------------------------------
 
 const Exchange = require ('./base/Exchange');
-const { ExchangeError, ArgumentsRequired, DDoSProtection, InsufficientFunds, InvalidOrder, OrderNotFound, AuthenticationError, BadRequest } = require ('./base/errors');
+const { BadSymbol, ExchangeError, ArgumentsRequired, DDoSProtection, InsufficientFunds, InvalidOrder, OrderNotFound, AuthenticationError, BadRequest } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -43,6 +43,11 @@ module.exports = class okcoinusd extends Exchange {
                 '1w': '1week',
             },
             'api': {
+                'v3': {
+                    'get': [
+                        'futures/pc/market/futuresCoin',
+                    ],
+                },
                 'web': {
                     'get': [
                         'futures/pc/market/marketOverview',
@@ -122,6 +127,7 @@ module.exports = class okcoinusd extends Exchange {
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766791-89ffb502-5ee5-11e7-8a5b-c5950b68ac65.jpg',
                 'api': {
+                    'v3': 'https://www.okcoin.com/v3',
                     'web': 'https://www.okcoin.com/v2',
                     'public': 'https://www.okcoin.com/api',
                     'private': 'https://www.okcoin.com',
@@ -132,12 +138,13 @@ module.exports = class okcoinusd extends Exchange {
                     'https://www.npmjs.com/package/okcoin.com',
                 ],
                 'referral': 'https://www.okcoin.com/account/register?flag=activity&channelId=600001513',
+                'fees': 'https://support.okcoin.com/hc/en-us/articles/360015261532-OKCoin-Fee-Rates',
             },
             // these are okcoin.com fees, okex fees are in okex.js
             'fees': {
                 'trading': {
-                    'taker': 0.001,
-                    'maker': 0.0005,
+                    'taker': 0.002,
+                    'maker': 0.001,
                 },
             },
             'exceptions': {
@@ -161,6 +168,7 @@ module.exports = class okcoinusd extends Exchange {
                 '10009': OrderNotFound, // for spot markets, "Order does not exist"
                 '20015': OrderNotFound, // for future markets
                 '10008': BadRequest, // Illegal URL parameter
+                '1007': BadSymbol, // No trading market information
                 // todo: sort out below
                 // 10000 Required parameter is empty
                 // 10001 Request frequency too high to exceed the limit allowed
@@ -214,7 +222,6 @@ module.exports = class okcoinusd extends Exchange {
                 // 10051 order completed transaction
                 // 10052 not allowed to withdraw
                 // 10064 after a USD deposit, that portion of assets will not be withdrawable for the next 48 hours
-                // 1007 No trading market information
                 // 1008 No latest market information
                 // 1009 No order
                 // 1010 Different user of the cancelled order and the original order
@@ -366,7 +373,9 @@ module.exports = class okcoinusd extends Exchange {
         const spotMarkets = this.safeValue (spotResponse, 'data', []);
         let markets = spotMarkets;
         if (this.has['futures']) {
-            const futuresResponse = await this.webPostFuturesPcMarketFuturesCoin ();
+            const futuresResponse = await this.v3GetFuturesPcMarketFuturesCoin ({
+                'currencyCode': 0,
+            });
             //
             //     {
             //         "msg":"success",
@@ -400,7 +409,8 @@ module.exports = class okcoinusd extends Exchange {
             //         ]
             //     }
             //
-            const futuresMarkets = this.safeValue (futuresResponse, 'data', []);
+            const data = this.safeValue (futuresResponse, 'data', {});
+            const futuresMarkets = this.safeValue (data, 'usd', []);
             markets = this.arrayConcat (spotMarkets, futuresMarkets);
         }
         for (let i = 0; i < markets.length; i++) {
@@ -435,8 +445,8 @@ module.exports = class okcoinusd extends Exchange {
                 contracts = [{}];
             } else {
                 // futures markets
-                quoteId = this.safeString (market, 'quote');
-                uppercaseBaseId = this.safeString (market, 'symbolDesc');
+                quoteId = this.safeStringLower2 (market, 'quote', 'denomination');
+                uppercaseBaseId = this.safeStringLower (market, 'symbolDesc');
                 baseId = uppercaseBaseId.toLowerCase ();
                 lowercaseId = baseId + '_' + quoteId;
                 base = this.safeCurrencyCode (uppercaseBaseId);
@@ -521,10 +531,7 @@ module.exports = class okcoinusd extends Exchange {
         const request = {};
         const response = await this.publicGetTickers (this.extend (request, params));
         const tickers = response['tickers'];
-        let timestamp = this.safeInteger (response, 'date');
-        if (timestamp !== undefined) {
-            timestamp *= 1000;
-        }
+        const timestamp = this.safeTimestamp (response, 'date');
         const result = {};
         for (let i = 0; i < tickers.length; i++) {
             let ticker = tickers[i];
@@ -645,9 +652,8 @@ module.exports = class okcoinusd extends Exchange {
         if (ticker === undefined) {
             throw new ExchangeError (this.id + ' fetchTicker returned an empty response: ' + this.json (response));
         }
-        let timestamp = this.safeInteger (response, 'date');
+        const timestamp = this.safeTimestamp (response, 'date');
         if (timestamp !== undefined) {
-            timestamp *= 1000;
             ticker = this.extend (ticker, { 'timestamp': timestamp });
         }
         return this.parseTicker (ticker, market);
@@ -717,7 +723,6 @@ module.exports = class okcoinusd extends Exchange {
         const method = market['future'] ? 'publicGetFutureKline' : 'publicGetKline';
         const request = this.createRequest (market, {
             'type': this.timeframes[timeframe],
-            // 'since': since === undefined ? this.milliseconds () - 86400000 : since,  // default last 24h
         });
         if (since !== undefined) {
             request['since'] = parseInt ((this.milliseconds () - 86400000) / 1000); // default last 24h
@@ -769,8 +774,9 @@ module.exports = class okcoinusd extends Exchange {
             'type': orderSide,
         });
         if (market['future']) {
-            request['match_price'] = 0; // match best counter party price? 0 or 1, ignores price if 1
+            request['match_price'] = (type === 'market') ? 1 : 0; // match best counter party price? 0 or 1, ignores price if 1
             request['lever_rate'] = 10; // leverage rate value: 10 or 20 (10 by default)
+            request['type'] = (side === 'buy') ? '1' : '2';
         } else if (type === 'market') {
             if (side === 'buy') {
                 if (!orderPrice) {
@@ -1052,11 +1058,12 @@ module.exports = class okcoinusd extends Exchange {
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
         let url = '/';
-        if (api !== 'web') {
+        const isWebApi = (api === 'web') || (api === 'v3');
+        if (!isWebApi) {
             url += this.version + '/';
         }
         url += path;
-        if (api !== 'web') {
+        if (!isWebApi) {
             url += this.extension;
         }
         if (api === 'private') {
@@ -1090,23 +1097,19 @@ module.exports = class okcoinusd extends Exchange {
         }, params);
     }
 
-    handleErrors (code, reason, url, method, headers, body, response) {
+    handleErrors (code, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (response === undefined) {
             return; // fallback to default error handler
         }
         if ('error_code' in response) {
             const error = this.safeString (response, 'error_code');
-            const message = this.id + ' ' + this.json (response);
-            if (error in this.exceptions) {
-                const ExceptionClass = this.exceptions[error];
-                throw new ExceptionClass (message);
-            } else {
-                throw new ExchangeError (message);
-            }
+            const message = this.id + ' ' + body;
+            this.throwExactlyMatchedException (this.exceptions, error, message);
+            throw new ExchangeError (message);
         }
         if ('result' in response) {
             if (!response['result']) {
-                throw new ExchangeError (this.id + ' ' + this.json (response));
+                throw new ExchangeError (this.id + ' ' + body);
             }
         }
     }

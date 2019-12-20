@@ -8,7 +8,7 @@ import math
 from ccxt.base.errors import ArgumentsRequired
 
 
-class coss (Exchange):
+class coss(Exchange):
 
     def describe(self):
         return self.deep_extend(super(coss, self).describe(), {
@@ -17,7 +17,7 @@ class coss (Exchange):
             'countries': ['SG', 'NL'],
             'rateLimit': 1000,
             'version': 'v1',
-            'certified': True,
+            'certified': False,
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/50328158-22e53c00-0503-11e9-825c-c5cfd79bfa74.jpg',
                 'api': {
@@ -111,8 +111,8 @@ class coss (Exchange):
                 'trading': {
                     'tierBased': True,
                     'percentage': True,
-                    'taker': 0.0020,
-                    'maker': 0.0014,
+                    'taker': 0.0025,
+                    'maker': 0.0,
                 },
                 'funding': {
                     'tierBased': False,
@@ -120,6 +120,10 @@ class coss (Exchange):
                     'withdraw': {},
                     'deposit': {},
                 },
+            },
+            'commonCurrencies': {
+                'COS': 'COSS',
+                'COSS': 'COSS.io',
             },
         })
 
@@ -563,9 +567,7 @@ class coss (Exchange):
         id = self.safe_string(trade, 'id')
         timestamp = self.safe_integer(trade, 'time')
         orderId = self.safe_string(trade, 'order_id')
-        side = self.safe_string(trade, 'order_side')
-        if side is not None:
-            side = side.lower()
+        side = self.safe_string_lower(trade, 'order_side')
         symbol = None
         marketId = self.safe_string(trade, 'symbol')
         if marketId is not None:
@@ -774,9 +776,7 @@ class coss (Exchange):
             if filled is not None:
                 remaining = amount - filled
         average = self.safe_float(order, 'avg')
-        side = self.safe_string(order, 'order_side')
-        if side is not None:
-            side = side.lower()
+        side = self.safe_string_lower(order, 'order_side')
         cost = self.safe_float(order, 'total')
         fee = None
         trades = None
@@ -873,6 +873,7 @@ class coss (Exchange):
             headers = {
                 'Signature': self.hmac(self.encode(request), self.encode(self.secret)),
                 'Authorization': self.apiKey,
+                'X-Requested-With': 'XMLHttpRequest',
             }
         else:
             if params:

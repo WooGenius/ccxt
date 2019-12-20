@@ -2,7 +2,7 @@
 
 # -----------------------------------------------------------------------------
 
-__version__ = '1.18.926'
+__version__ = '1.21.4'
 
 # -----------------------------------------------------------------------------
 
@@ -53,7 +53,6 @@ class Exchange(BaseExchange):
         self.verify = config.get('verify', self.verify)
         self.own_session = 'session' not in config
         self.cafile = config.get('cafile', certifi.where())
-        self.open()
         super(Exchange, self).__init__(config)
         self.init_rest_rate_limiter()
 
@@ -125,7 +124,9 @@ class Exchange(BaseExchange):
             print("\nRequest:", method, url, headers, body)
         self.logger.debug("%s %s, Request: %s %s", method, url, headers, body)
 
+        request_body = body
         encoded_body = body.encode() if body else None
+        self.open()
         session_method = getattr(self.session, method.lower())
 
         http_response = None
@@ -165,12 +166,14 @@ class Exchange(BaseExchange):
         except aiohttp.client_exceptions.ClientError as e:  # base exception class
             raise ExchangeError(method + ' ' + url)
 
-        self.handle_errors(http_status_code, http_status_text, url, method, headers, http_response, json_response)
+        self.handle_errors(http_status_code, http_status_text, url, method, headers, http_response, json_response, request_headers, request_body)
         self.handle_rest_errors(http_status_code, http_status_text, http_response, url, method)
         self.handle_rest_response(http_response, json_response, url, method)
         if json_response is not None:
             return json_response
-        return http_response
+        if self.is_text_response(headers):
+            return http_response
+        return response.content
 
     async def load_markets(self, reload=False, params={}):
         if not reload:
@@ -294,3 +297,6 @@ class Exchange(BaseExchange):
                 self.accounts = await self.fetch_accounts(params)
         self.accountsById = self.index_by(self.accounts, 'id')
         return self.accounts
+
+    async def fetch_ticker(self, symbol, params={}):
+        raise NotSupported('fetch_ticker() not supported yet')

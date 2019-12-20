@@ -11,7 +11,7 @@ from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import DDoSProtection
 
 
-class coinfalcon (Exchange):
+class coinfalcon(Exchange):
 
     def describe(self):
         return self.deep_extend(super(coinfalcon, self).describe(), {
@@ -182,10 +182,10 @@ class coinfalcon (Exchange):
         fee = None
         feeCost = self.safe_float(trade, 'fee')
         if feeCost is not None:
-            feeCurrencyCode = None
+            feeCurrencyCode = self.safe_string(trade, 'fee_currency_code')
             fee = {
                 'cost': feeCost,
-                'currency': feeCurrencyCode,
+                'currency': self.safe_currency_code(feeCurrencyCode),
             }
         return {
             'info': trade,
@@ -376,7 +376,7 @@ class coinfalcon (Exchange):
         url = self.urls['api'] + request
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if code < 400:
             return
         ErrorClass = self.safe_value({

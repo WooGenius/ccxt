@@ -14,7 +14,7 @@ from ccxt.base.errors import AddressPending
 from ccxt.base.errors import NotSupported
 
 
-class buda (Exchange):
+class buda(Exchange):
 
     def describe(self):
         return self.deep_extend(super(buda, self).describe(), {
@@ -511,9 +511,7 @@ class buda (Exchange):
         if market is not None:
             symbol = market['symbol']
         type = self.safe_string(order, 'price_type')
-        side = self.safe_string(order, 'type')
-        if side is not None:
-            side = side.lower()
+        side = self.safe_string_lower(order, 'type')
         status = self.parse_order_status(self.safe_string(order, 'state'))
         amount = float(order['original_amount'][0])
         remaining = float(order['amount'][0])
@@ -605,7 +603,7 @@ class buda (Exchange):
         statuses = {
             'rejected': 'failed',
             'confirmed': 'ok',
-            'anulled': 'canceled',
+            'aNoneed': 'canceled',
             'retained': 'canceled',
             'pending_confirmation': 'pending',
         }
@@ -620,7 +618,7 @@ class buda (Exchange):
         fee = float(transaction['fee'][0])
         feeCurrency = transaction['fee'][1]
         status = self.parse_transaction_status(self.safe_string(transaction, 'state'))
-        type = 'deposit' if ('deposit_data' in list(transaction.keys())) else 'withdrawal'
+        type = 'deposit' if ('deposit_data' in transaction) else 'withdrawal'
         data = self.safe_value(transaction, type + '_data', {})
         address = self.safe_value(data, 'target_address')
         txid = self.safe_string(data, 'tx_hash')
@@ -654,7 +652,7 @@ class buda (Exchange):
         }
         response = self.privateGetCurrenciesCurrencyDeposits(self.extend(request, params))
         deposits = self.safe_value(response, 'deposits')
-        return self.parseTransactions(deposits, currency, since, limit)
+        return self.parse_transactions(deposits, currency, since, limit)
 
     def fetch_withdrawals(self, code=None, since=None, limit=None, params={}):
         self.load_markets()
@@ -667,7 +665,7 @@ class buda (Exchange):
         }
         response = self.privateGetCurrenciesCurrencyWithdrawals(self.extend(request, params))
         withdrawals = self.safe_value(response, 'withdrawals')
-        return self.parseTransactions(withdrawals, currency, since, limit)
+        return self.parse_transactions(withdrawals, currency, since, limit)
 
     def withdraw(self, code, amount, address, tag=None, params={}):
         self.check_address(address)
@@ -714,16 +712,13 @@ class buda (Exchange):
             }
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if response is None:
             return  # fallback to default error handler
         if code >= 400:
             errorCode = self.safe_string(response, 'code')
             message = self.safe_string(response, 'message', body)
             feedback = self.id + ' ' + message
-            exceptions = self.exceptions
             if errorCode is not None:
-                if errorCode in exceptions:
-                    raise exceptions[errorCode](feedback)
-                else:
-                    raise ExchangeError(feedback)
+                self.throw_exactly_matched_exception(self.exceptions, errorCode, feedback)
+                raise ExchangeError(feedback)

@@ -37,6 +37,7 @@ module.exports = class stronghold extends Exchange {
                 'fetchCurrencies': true,
                 'fetchOrderBook': true,
                 'fetchOpenOrders': true,
+                'fetchTime': true,
                 'fetchTrades': true,
                 'fetchMyTrades': true,
                 'fetchDepositAddress': false,
@@ -730,7 +731,7 @@ module.exports = class stronghold extends Exchange {
         };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response) {
+    handleErrors (code, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (!response) {
             return; // fallback to base error handler by default
         }

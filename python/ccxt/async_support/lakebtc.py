@@ -9,7 +9,7 @@ import hashlib
 from ccxt.base.errors import ExchangeError
 
 
-class lakebtc (Exchange):
+class lakebtc(Exchange):
 
     def describe(self):
         return self.deep_extend(super(lakebtc, self).describe(), {
@@ -92,12 +92,8 @@ class lakebtc (Exchange):
         for i in range(0, len(currencyIds)):
             currencyId = currencyIds[i]
             code = self.safe_currency_code(currencyId)
-            balance = self.safe_float(balances, currencyId)
-            account = {
-                'free': balance,
-                'used': 0.0,
-                'total': balance,
-            }
+            account = self.account()
+            account['total'] = self.safe_float(balances, currencyId)
             result[code] = account
         return self.parse_balance(result)
 
@@ -160,9 +156,7 @@ class lakebtc (Exchange):
         return self.parse_ticker(tickers[market['id']], market)
 
     def parse_trade(self, trade, market=None):
-        timestamp = self.safe_integer(trade, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(trade, 'date')
         id = self.safe_string(trade, 'tid')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'amount')

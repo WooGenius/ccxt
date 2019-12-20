@@ -9,6 +9,7 @@ import math
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ArgumentsRequired
+from ccxt.base.errors import BadRequest
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
@@ -16,7 +17,7 @@ from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import ExchangeNotAvailable
 
 
-class zb (Exchange):
+class zb(Exchange):
 
     def describe(self):
         return self.deep_extend(super(zb, self).describe(), {
@@ -71,7 +72,7 @@ class zb (Exchange):
                 '3002': InvalidOrder,  # 'Invalid price',
                 '3003': InvalidOrder,  # 'Invalid amount',
                 '3004': AuthenticationError,  # 'User does not exist',
-                '3005': ExchangeError,  # 'Invalid parameter',
+                '3005': BadRequest,  # 'Invalid parameter',
                 '3006': AuthenticationError,  # 'Invalid IP or inconsistent with the bound IP',
                 '3007': AuthenticationError,  # 'The request time has expired',
                 '3008': OrderNotFound,  # 'Transaction records not found',
@@ -270,6 +271,8 @@ class zb (Exchange):
         marketFieldName = self.get_market_field_name()
         request = {}
         request[marketFieldName] = market['id']
+        if limit is not None:
+            request['size'] = limit
         response = self.publicGetDepth(self.extend(request, params))
         return self.parse_order_book(response)
 
@@ -344,9 +347,7 @@ class zb (Exchange):
         return self.parse_ohlcvs(data, market, timeframe, since, limit)
 
     def parse_trade(self, trade, market=None):
-        timestamp = self.safe_integer(trade, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(trade, 'date')
         side = self.safe_string(trade, 'trade_type')
         side = 'buy' if (side == 'bid') else 'sell'
         id = self.safe_string(trade, 'tid')
@@ -518,7 +519,7 @@ class zb (Exchange):
         cost = self.safe_float(order, 'trade_money')
         average = None
         status = self.parse_order_status(self.safe_string(order, 'status'))
-        if (cost is not None) and(filled is not None) and(filled > 0):
+        if (cost is not None) and (filled is not None) and (filled > 0):
             average = cost / filled
         id = self.safe_string(order, 'id')
         return {
@@ -575,17 +576,15 @@ class zb (Exchange):
             url += '/' + path + '?' + auth + '&' + suffix
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, httpCode, reason, url, method, headers, body, response):
+    def handle_errors(self, httpCode, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if response is None:
             return  # fallback to default error handler
         if body[0] == '{':
             feedback = self.id + ' ' + body
             if 'code' in response:
                 code = self.safe_string(response, 'code')
-                if code in self.exceptions:
-                    ExceptionClass = self.exceptions[code]
-                    raise ExceptionClass(feedback)
-                elif code != '1000':
+                self.throw_exactly_matched_exception(self.exceptions, code, feedback)
+                if code != '1000':
                     raise ExchangeError(feedback)
             # special case for {"result":false,"message":"服务端忙碌"}(a "Busy Server" reply)
             result = self.safe_value(response, 'result')

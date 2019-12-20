@@ -11,7 +11,7 @@ from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import NotSupported
 
 
-class bitfinex2 (bitfinex):
+class bitfinex2(bitfinex):
 
     def describe(self):
         return self.deep_extend(super(bitfinex2, self).describe(), {
@@ -31,7 +31,7 @@ class bitfinex2 (bitfinex):
                 'fetchDepositAddress': False,
                 'fetchClosedOrders': False,
                 'fetchFundingFees': False,
-                'fetchMyTrades': False,  # has to be False https://github.com/ccxt/ccxt/issues/4971
+                'fetchMyTrades': True,
                 'fetchOHLCV': True,
                 'fetchOpenOrders': False,
                 'fetchOrder': True,
@@ -111,10 +111,12 @@ class bitfinex2 (bitfinex):
                         'auth/r/orders/{symbol}/new',
                         'auth/r/orders/{symbol}/hist',
                         'auth/r/order/{symbol}:{id}/trades',
+                        'auth/w/order/submit',
                         'auth/r/trades/hist',
                         'auth/r/trades/{symbol}/hist',
                         'auth/r/positions',
                         'auth/r/positions/hist',
+                        'auth/r/positions/audit',
                         'auth/r/funding/offers/{symbol}',
                         'auth/r/funding/offers/{symbol}/hist',
                         'auth/r/funding/loans/{symbol}',
@@ -205,7 +207,7 @@ class bitfinex2 (bitfinex):
         })
 
     def is_fiat(self, code):
-        return(code in list(self.options['fiat'].keys()))
+        return(code in self.options['fiat'])
 
     def get_currency_id(self, code):
         return 'f' + code
@@ -284,6 +286,8 @@ class bitfinex2 (bitfinex):
                     currency = currency[1:]
                 code = self.safe_currency_code(currency)
                 account = self.account()
+                # do not fill in zeroes and missing values in the parser
+                # rewrite and unify the following to use the unified parseBalance
                 account['total'] = total
                 if not available:
                     if available == 0:
@@ -437,7 +441,7 @@ class bitfinex2 (bitfinex):
                     symbol = market['symbol']
                 else:
                     symbol = marketId
-            orderId = trade[3]
+            orderId = str(trade[3])
             takerOrMaker = 'maker' if (trade[8] == 1) else 'taker'
             feeCost = trade[9]
             feeCurrency = self.safe_currency_code(trade[10])
@@ -533,8 +537,6 @@ class bitfinex2 (bitfinex):
         raise NotSupported(self.id + ' withdraw not implemented yet')
 
     def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
-        # self.has['fetchMyTrades'] is set to False
-        # https://github.com/ccxt/ccxt/issues/4971
         self.load_markets()
         market = None
         request = {
@@ -550,25 +552,6 @@ class bitfinex2 (bitfinex):
             request['symbol'] = market['id']
             method = 'privatePostAuthRTradesSymbolHist'
         response = getattr(self, method)(self.extend(request, params))
-        #
-        #     [
-        #         [
-        #             ID,
-        #             PAIR,
-        #             MTS_CREATE,
-        #             ORDER_ID,
-        #             EXEC_AMOUNT,
-        #             EXEC_PRICE,
-        #             ORDER_TYPE,
-        #             ORDER_PRICE,
-        #             MAKER,
-        #             FEE,
-        #             FEE_CURRENCY,
-        #             ...
-        #         ],
-        #         ...
-        #     ]
-        #
         return self.parse_trades(response, market, since, limit)
 
     def nonce(self):

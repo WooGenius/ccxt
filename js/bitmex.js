@@ -137,6 +137,7 @@ module.exports = class bitmex extends Exchange {
             'exceptions': {
                 'exact': {
                     'Invalid API Key.': AuthenticationError,
+                    'This key is disabled.': PermissionDenied,
                     'Access Denied': PermissionDenied,
                     'Duplicate clOrdID': InvalidOrder,
                     'orderQty is invalid': InvalidOrder,
@@ -147,6 +148,7 @@ module.exports = class bitmex extends Exchange {
                     'Signature not valid': AuthenticationError,
                     'overloaded': ExchangeNotAvailable,
                     'Account has insufficient Available Balance': InsufficientFunds,
+                    'Service unavailable': ExchangeNotAvailable, // {"error":{"message":"Service unavailable","name":"HTTPError"}}
                 },
             },
             'precisionMode': TICK_SIZE,
@@ -154,6 +156,7 @@ module.exports = class bitmex extends Exchange {
                 // https://blog.bitmex.com/api_announcement/deprecation-of-api-nonce-header/
                 // https://github.com/ccxt/ccxt/issues/4789
                 'api-expires': 5, // in seconds
+                'fetchOHLCVOpenTimestamp': true,
             },
         });
     }
@@ -436,6 +439,7 @@ module.exports = class bitmex extends Exchange {
         const types = {
             'Withdrawal': 'transaction',
             'RealisedPNL': 'margin',
+            'UnrealisedPNL': 'margin',
             'Deposit': 'transaction',
             'Transfer': 'transfer',
             'AffiliatePayout': 'referral',
@@ -462,6 +466,29 @@ module.exports = class bitmex extends Exchange {
         //         timestamp: "2017-03-22T13:09:23.514Z"
         //     }
         //
+        // ButMEX returns the unrealized pnl from the wallet history endpoint.
+        // The unrealized pnl transaction has an empty timestamp.
+        // It is not related to historical pnl it has status set to "Pending".
+        // Therefore it's not a part of the history at all.
+        // https://github.com/ccxt/ccxt/issues/6047
+        //
+        //     {
+        //         "transactID":"00000000-0000-0000-0000-000000000000",
+        //         "account":121210,
+        //         "currency":"XBt",
+        //         "transactType":"UnrealisedPNL",
+        //         "amount":-5508,
+        //         "fee":0,
+        //         "transactStatus":"Pending",
+        //         "address":"XBTUSD",
+        //         "tx":"",
+        //         "text":"",
+        //         "transactTime":null,  # ←---------------------------- null
+        //         "walletBalance":139198767,
+        //         "marginBalance":139193259,
+        //         "timestamp":null  # ←---------------------------- null
+        //     }
+        //
         const id = this.safeString (item, 'transactID');
         const account = this.safeString (item, 'account');
         const referenceId = this.safeString (item, 'tx');
@@ -473,7 +500,13 @@ module.exports = class bitmex extends Exchange {
         if (amount !== undefined) {
             amount = amount * 1e-8;
         }
-        const timestamp = this.parse8601 (this.safeString (item, 'transactTime'));
+        let timestamp = this.parse8601 (this.safeString (item, 'transactTime'));
+        if (timestamp === undefined) {
+            // https://github.com/ccxt/ccxt/issues/6047
+            // set the timestamp to zero, 1970 Jan 1 00:00:00
+            // for unrealized pnl and other transactions without a timestamp
+            timestamp = 0; // see comments above
+        }
         let feeCost = this.safeFloat (item, 'fee', 0);
         if (feeCost !== undefined) {
             feeCost = feeCost * 1e-8;
@@ -569,7 +602,7 @@ module.exports = class bitmex extends Exchange {
             request['count'] = limit;
         }
         const response = await this.privateGetUserWalletHistory (this.extend (request, params));
-        const transactions = this.filterByArray (response, [ 'Withdrawal', 'Deposit' ], false);
+        const transactions = this.filterByArray (response, 'transactType', [ 'Withdrawal', 'Deposit' ], false);
         let currency = undefined;
         if (code !== undefined) {
             currency = this.currency (code);
@@ -610,10 +643,7 @@ module.exports = class bitmex extends Exchange {
         // For withdrawals, transactTime is submission, timestamp is processed
         const transactTime = this.parse8601 (this.safeString (transaction, 'transactTime'));
         const timestamp = this.parse8601 (this.safeString (transaction, 'timestamp'));
-        let type = this.safeString (transaction, 'transactType');
-        if (type !== undefined) {
-            type = type.toLowerCase ();
-        }
+        const type = this.safeStringLower (transaction, 'transactType');
         // Deposits have no from address or to address, withdrawals have both
         let address = undefined;
         let addressFrom = undefined;
@@ -872,13 +902,28 @@ module.exports = class bitmex extends Exchange {
         if (limit !== undefined) {
             request['count'] = limit; // default 100, max 500
         }
+        const duration = this.parseTimeframe (timeframe) * 1000;
+        const fetchOHLCVOpenTimestamp = this.safeValue (this.options, 'fetchOHLCVOpenTimestamp', true);
         // if since is not set, they will return candles starting from 2017-01-01
         if (since !== undefined) {
-            const ymdhms = this.ymdhms (since);
+            let timestamp = since;
+            if (fetchOHLCVOpenTimestamp) {
+                timestamp = this.sum (timestamp, duration);
+            }
+            const ymdhms = this.ymdhms (timestamp);
             request['startTime'] = ymdhms; // starting date filter for results
         }
         const response = await this.publicGetTradeBucketed (this.extend (request, params));
-        return this.parseOHLCVs (response, market, timeframe, since, limit);
+        const result = this.parseOHLCVs (response, market, timeframe, since, limit);
+        if (fetchOHLCVOpenTimestamp) {
+            // bitmex returns the candle's close timestamp - https://github.com/ccxt/ccxt/issues/4446
+            // we can emulate the open timestamp by shifting all the timestamps one place
+            // so the previous close becomes the current open, and we drop the first candle
+            for (let i = 0; i < result.length; i++) {
+                result[i][0] = result[i][0] - duration;
+            }
+        }
+        return result;
     }
 
     parseTrade (trade, market = undefined) {
@@ -955,7 +1000,7 @@ module.exports = class bitmex extends Exchange {
         const amount = this.safeFloat2 (trade, 'size', 'lastQty');
         const id = this.safeString (trade, 'trdMatchID');
         const order = this.safeString (trade, 'orderID');
-        const side = this.safeString (trade, 'side').toLowerCase ();
+        const side = this.safeStringLower (trade, 'side');
         // price * amount doesn't work for all symbols (e.g. XBT, ETH)
         let cost = this.safeFloat (trade, 'execCost');
         if (cost !== undefined) {
@@ -976,7 +1021,7 @@ module.exports = class bitmex extends Exchange {
         }
         let takerOrMaker = undefined;
         if (fee !== undefined) {
-            takerOrMaker = fee['cost'] < 0 ? 'maker' : 'taker';
+            takerOrMaker = (fee['cost'] < 0) ? 'maker' : 'taker';
         }
         let symbol = undefined;
         const marketId = this.safeString (trade, 'symbol');
@@ -988,10 +1033,7 @@ module.exports = class bitmex extends Exchange {
                 symbol = marketId;
             }
         }
-        let type = this.safeString (trade, 'ordType');
-        if (type !== undefined) {
-            type = type.toLowerCase ();
-        }
+        const type = this.safeStringLower (trade, 'ordType');
         return {
             'info': trade,
             'timestamp': timestamp,
@@ -1060,14 +1102,8 @@ module.exports = class bitmex extends Exchange {
             }
         }
         const id = this.safeString (order, 'orderID');
-        let type = this.safeString (order, 'ordType');
-        if (type !== undefined) {
-            type = type.toLowerCase ();
-        }
-        let side = this.safeString (order, 'side');
-        if (side !== undefined) {
-            side = side.toLowerCase ();
-        }
+        const type = this.safeStringLower (order, 'ordType');
+        const side = this.safeStringLower (order, 'side');
         return {
             'info': order,
             'id': id,
@@ -1213,7 +1249,7 @@ module.exports = class bitmex extends Exchange {
         };
     }
 
-    handleErrors (code, reason, url, method, headers, body, response) {
+    handleErrors (code, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (response === undefined) {
             return;
         }
@@ -1224,15 +1260,8 @@ module.exports = class bitmex extends Exchange {
             const error = this.safeValue (response, 'error', {});
             const message = this.safeString (error, 'message');
             const feedback = this.id + ' ' + body;
-            const exact = this.exceptions['exact'];
-            if (message in exact) {
-                throw new exact[message] (feedback);
-            }
-            const broad = this.exceptions['broad'];
-            const broadKey = this.findBroadlyMatchedKey (broad, message);
-            if (broadKey !== undefined) {
-                throw new broad[broadKey] (feedback);
-            }
+            this.throwExactlyMatchedException (this.exceptions['exact'], message, feedback);
+            this.throwBroadlyMatchedException (this.exceptions['broad'], message, feedback);
             if (code === 400) {
                 throw new BadRequest (feedback);
             }
@@ -1258,8 +1287,7 @@ module.exports = class bitmex extends Exchange {
             }
         }
         const url = this.urls['api'] + query;
-        if (api === 'private') {
-            this.checkRequiredCredentials ();
+        if (this.apiKey && this.secret) {
             let auth = method + query;
             let expires = this.safeInteger (this.options, 'api-expires');
             headers = {

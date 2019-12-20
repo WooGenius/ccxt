@@ -1195,7 +1195,7 @@ module.exports = class therock extends Exchange {
         return { 'url': url, 'method': method, 'body': body, 'headers': headers };
     }
 
-    handleErrors (httpCode, reason, url, method, headers, body, response) {
+    handleErrors (httpCode, reason, url, method, headers, body, response, requestHeaders, requestBody) {
         if (response === undefined) {
             return; // fallback to default error handler
         }
@@ -1215,19 +1215,12 @@ module.exports = class therock extends Exchange {
         const numErrors = errors.length;
         if (numErrors > 0) {
             const feedback = this.id + ' ' + body;
-            const exact = this.exceptions['exact'];
-            const broad = this.exceptions['broad'];
             // here we throw the first error we can identify
             for (let i = 0; i < numErrors; i++) {
                 const error = errors[i];
                 const message = this.safeString (error, 'message');
-                if (message in exact) {
-                    throw new exact[message] (feedback);
-                }
-                const broadKey = this.findBroadlyMatchedKey (broad, message);
-                if (broadKey !== undefined) {
-                    throw new broad[broadKey] (feedback);
-                }
+                this.throwExactlyMatchedException (this.exceptions['exact'], message, feedback);
+                this.throwBroadlyMatchedException (this.exceptions['broad'], message, feedback);
             }
             throw new ExchangeError (feedback); // unknown message
         }

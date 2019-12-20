@@ -6,7 +6,9 @@ error_hierarchy = {
                 'AccountSuspended': {},
             },
             'ArgumentsRequired': {},
-            'BadRequest': {},
+            'BadRequest': {
+                'BadSymbol': {},
+            },
             'BadResponse': {
                 'NullResponse': {},
             },
@@ -25,13 +27,45 @@ error_hierarchy = {
             'NotSupported': {},
         },
         'NetworkError': {
-            'DDoSProtection': {},
-            'ExchangeNotAvailable': {},
+            'DDoSProtection': {
+                'RateLimitExceeded': {},
+            },
+            'ExchangeNotAvailable': {
+                'OnMaintenance': {},
+            },
             'InvalidNonce': {},
             'RequestTimeout': {},
         },
     },
 }
+
+ExchangeError = Exception
+AuthenticationError = Exception
+PermissionDenied = Exception
+AccountSuspended = Exception
+ArgumentsRequired = Exception
+BadRequest = Exception
+BadSymbol = Exception
+BadResponse = Exception
+NullResponse = Exception
+InsufficientFunds = Exception
+InvalidAddress = Exception
+AddressPending = Exception
+InvalidOrder = Exception
+OrderNotFound = Exception
+OrderNotCached = Exception
+CancelPending = Exception
+OrderImmediatelyFillable = Exception
+OrderNotFillable = Exception
+DuplicateOrderId = Exception
+NotSupported = Exception
+NetworkError = Exception
+DDoSProtection = Exception
+RateLimitExceeded = Exception
+ExchangeNotAvailable = Exception
+OnMaintenance = Exception
+InvalidNonce = Exception
+RequestTimeout = Exception
 
 # -----------------------------------------------------------------------------
 

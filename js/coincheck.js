@@ -3,7 +3,7 @@
 //  ---------------------------------------------------------------------------
 
 const Exchange = require ('./base/Exchange');
-const { ExchangeError, NotSupported } = require ('./base/errors');
+const { BadSymbol, ExchangeError } = require ('./base/errors');
 
 //  ---------------------------------------------------------------------------
 
@@ -211,7 +211,7 @@ module.exports = class coincheck extends Exchange {
 
     async fetchOrderBook (symbol, limit = undefined, params = {}) {
         if (symbol !== 'BTC/JPY') {
-            throw new NotSupported (this.id + ' fetchOrderBook () supports BTC/JPY only');
+            throw new BadSymbol (this.id + ' fetchOrderBook () supports BTC/JPY only');
         }
         await this.loadMarkets ();
         const response = await this.publicGetOrderBooks (params);
@@ -220,14 +220,11 @@ module.exports = class coincheck extends Exchange {
 
     async fetchTicker (symbol, params = {}) {
         if (symbol !== 'BTC/JPY') {
-            throw new NotSupported (this.id + ' fetchTicker () supports BTC/JPY only');
+            throw new BadSymbol (this.id + ' fetchTicker () supports BTC/JPY only');
         }
         await this.loadMarkets ();
         const ticker = await this.publicGetTicker (params);
-        let timestamp = this.safeInteger (ticker, 'timestamp');
-        if (timestamp !== undefined) {
-            timestamp *= 1000;
-        }
+        const timestamp = this.safeTimestamp (ticker, 'timestamp');
         const last = this.safeFloat (ticker, 'last');
         return {
             'symbol': symbol,
@@ -341,7 +338,7 @@ module.exports = class coincheck extends Exchange {
 
     async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
         if (symbol !== 'BTC/JPY') {
-            throw new NotSupported (this.id + ' fetchTrades () supports BTC/JPY only');
+            throw new BadSymbol (this.id + ' fetchTrades () supports BTC/JPY only');
         }
         await this.loadMarkets ();
         const market = this.market (symbol);

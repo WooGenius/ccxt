@@ -7,7 +7,7 @@ from ccxt.base.exchange import Exchange
 from ccxt.base.errors import ExchangeError
 
 
-class virwox (Exchange):
+class virwox(Exchange):
 
     def describe(self):
         return self.deep_extend(super(virwox, self).describe(), {
@@ -115,12 +115,8 @@ class virwox (Exchange):
             balance = balances[i]
             currencyId = self.safe_string(balance, 'currency')
             code = self.safe_currency_code(currencyId)
-            total = self.safe_float(balance, 'balance')
-            account = {
-                'free': total,
-                'used': 0.0,
-                'total': total,
-            }
+            account = self.account()
+            account['total'] = self.safe_float(balance, 'balance')
             result[code] = account
         return self.parse_balance(result)
 
@@ -190,9 +186,7 @@ class virwox (Exchange):
         }
 
     def parse_trade(self, trade, market=None):
-        timestamp = self.safe_integer(trade, 'time')
-        if timestamp is not None:
-            timestamp *= 1000
+        timestamp = self.safe_timestamp(trade, 'time')
         id = self.safe_string(trade, 'tid')
         price = self.safe_float(trade, 'price')
         amount = self.safe_float(trade, 'vol')
@@ -276,7 +270,7 @@ class virwox (Exchange):
             })
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, code, reason, url, method, headers, body, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response, requestHeaders, requestBody):
         if code == 200:
             if (body[0] == '{') or (body[0] == '['):
                 if 'result' in response:
